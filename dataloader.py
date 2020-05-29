@@ -13,293 +13,130 @@
 # limitations under the License.
 # ==============================================================================
 
-import dareblopy as db
-import random
-
+import torch.utils.data
+import pickle
+from os import path
+import dlutils
 import numpy as np
 import torch
 import torch.tensor
 import torch.utils
 import torch.utils.data
-import time
-import math
 
 cpu = torch.device('cpu')
 
 
-class TFRecordsDataset:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None, train=True, needs_labels=False):
-        self.cfg = cfg
-        self.logger = logger
-        self.rank = rank
-        self.last_data = ""
-        if train:
-            self.part_count = cfg.DATASET.PART_COUNT
-            self.part_size = cfg.DATASET.SIZE // self.part_count
-        else:
-            self.part_count = cfg.DATASET.PART_COUNT_TEST
-            self.part_size = cfg.DATASET.SIZE_TEST // self.part_count
-        self.workers = []
-        self.workers_active = 0
-        self.iterator = None
-        self.filenames = {}
-        self.batch_size = 512
-        self.features = {}
-        self.channels = channels
-        self.seed = seed
-        self.train = train
-        self.needs_labels = needs_labels
+class Dataset:
+    @staticmethod
+    def list_of_pairs_to_numpy(l):
+        return np.asarray([x[1] for x in l], np.float32), np.asarray([x[0] for x in l], np.int)
 
-        assert self.part_count % world_size == 0
+    def __init__(self, data):
+        self.x, self.y = Dataset.list_of_pairs_to_numpy(data)
 
-        self.part_count_local = self.part_count // world_size
-
-        if train:
-            path = cfg.DATASET.PATH
-        else:
-            path = cfg.DATASET.PATH_TEST
-
-        for r in range(2, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
-            files = []
-            for i in range(self.part_count_local * rank, self.part_count_local * (rank + 1)):
-                file = path % (r, i)
-                files.append(file)
-            self.filenames[r] = files
-
-        self.buffer_size_b = 1024 ** 2 * buffer_size_mb
-
-        self.current_filenames = []
-
-    def reset(self, lod, batch_size):
-        assert lod in self.filenames.keys()
-        self.current_filenames = self.filenames[lod]
-        self.batch_size = batch_size
-
-        img_size = 2 ** lod
-
-        if self.needs_labels:
-            self.features = {
-                # 'shape': db.FixedLenFeature([3], db.int64),
-                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8),
-                'label': db.FixedLenFeature([], db.int64)
-            }
-        else:
-            self.features = {
-                # 'shape': db.FixedLenFeature([3], db.int64),
-                'data': db.FixedLenFeature([self.channels, img_size, img_size], db.uint8)
-            }
-
-        buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
-
-        if self.seed is None:
-            seed = np.uint64(time.time() * 1000)
-        else:
-            seed = self.seed
-            self.logger.info('!' * 80)
-            self.logger.info('! Seed is used for to shuffle data in TFRecordsDataset!')
-            self.logger.info('!' * 80)
-
-        self.iterator = db.ParsedTFRecordsDatasetIterator(self.current_filenames, self.features, self.batch_size, buffer_size, seed=seed)
-
-    def __iter__(self):
-        return self.iterator
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return self.y[index.start:index.stop], self.x[index.start:index.stop]
+        return self.y[index], self.x[index]
 
     def __len__(self):
-        return self.part_count_local * self.part_size
+        return len(self.y)
+
+    def shuffle(self):
+        permutation = np.random.permutation(self.y.shape[0])
+        for x in [self.y, self.x]:
+            np.take(x, permutation, axis=0, out=x)
 
 
-def make_dataloader(cfg, logger, dataset, GPU_batch_size, local_rank, numpy=False):
+def make_datasets(cfg, folding_id, inliner_classes):
+    data_train = []
+    data_valid = []
+
+    for i in range(cfg.DATASET.FOLDS_COUNT):
+        if i != folding_id:
+            with open(cfg.DATASET.PATH % i, 'rb') as pkl:
+                fold = pickle.load(pkl)
+            if len(data_valid) == 0:
+                data_valid = fold
+            else:
+                data_train += fold
+
+    outlier_classes = []
+    for i in range(cfg.DATASET.TOTAL_CLASS_COUNT):
+        if i not in inliner_classes:
+            outlier_classes.append(i)
+
+    data_train = [x for x in data_train if x[0] in inliner_classes]
+
+    with open(cfg.DATASET.PATH % folding_id, 'rb') as pkl:
+        data_test = pickle.load(pkl)
+
+    train_set = Dataset(data_train)
+    valid_set = Dataset(data_valid)
+    test_set = Dataset(data_test)
+
+    return train_set, valid_set, test_set
+
+
+def make_dataloader(dataset, batch_size, device):
     class BatchCollator(object):
-        def __init__(self, device=torch.device("cpu")):
+        def __init__(self, device):
             self.device = device
-            self.flip = cfg.DATASET.FLIP_IMAGES
-            self.numpy = numpy
 
         def __call__(self, batch):
             with torch.no_grad():
-                x, = batch
-                if self.flip:
-                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
-                    x = np.array([img[flip] for img, flip in zip(x, flips)])
-                if self.numpy:
-                    return x
-                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
-                return x
+                y, x = batch
+                x = torch.tensor(x / 255.0, requires_grad=True, dtype=torch.float32, device=self.device)
+                y = torch.tensor(y, dtype=torch.int32, device=self.device)
+                return y, x
 
-    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
-
-    return batches
+    data_loader = dlutils.batch_provider(dataset, batch_size, BatchCollator(device))
+    return data_loader
 
 
-def make_dataloader_y(cfg, logger, dataset, GPU_batch_size, local_rank):
-    class BatchCollator(object):
-        def __init__(self, device=torch.device("cpu")):
-            self.device = device
-            self.flip = cfg.DATASET.FLIP_IMAGES
+def create_set_with_outlier_percentage(dataset, inliner_classes, target_percentage, concervative=True):
+    np.random.seed(0)
+    dataset.shuffle()
+    dataset_outlier = [x for x in dataset if x[0] not in inliner_classes]
+    dataset_inliner = [x for x in dataset if x[0] in inliner_classes]
 
-        def __call__(self, batch):
-            with torch.no_grad():
-                x, y = batch
-                if self.flip:
-                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
-                    x = np.array([img[flip] for img, flip in zip(x, flips)])
-                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
-                return x, y
+    def increase_length(data_list, target_length):
+        repeat = (target_length + len(data_list) - 1) // len(data_list)
+        data_list = data_list * repeat
+        data_list = data_list[:target_length]
+        return data_list
 
-    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
+    if not concervative:
+        inliner_count = len(dataset_inliner)
+        outlier_count = inliner_count * target_percentage // (100 - target_percentage)
 
-    return batches
-
-
-class TFRecordsDatasetImageNet:
-    def __init__(self, cfg, logger, rank=0, world_size=1, buffer_size_mb=200, channels=3, seed=None, train=True, needs_labels=False):
-        self.cfg = cfg
-        self.logger = logger
-        self.rank = rank
-        self.last_data = ""
-        self.part_count = cfg.DATASET.PART_COUNT
-        if train:
-            self.part_size = cfg.DATASET.SIZE // cfg.DATASET.PART_COUNT
+        if len(dataset_outlier) > outlier_count:
+            dataset_outlier = dataset_outlier[:outlier_count]
         else:
-            self.part_size = cfg.DATASET.SIZE_TEST // cfg.DATASET.PART_COUNT
-        self.workers = []
-        self.workers_active = 0
-        self.iterator = None
-        self.filenames = {}
-        self.batch_size = 512
-        self.features = {}
-        self.channels = channels
-        self.seed = seed
-        self.train = train
-        self.needs_labels = needs_labels
+            outlier_count = len(dataset_outlier)
+            inliner_count = outlier_count * (100 - target_percentage) // target_percentage
+            dataset_inliner = dataset_inliner[:inliner_count]
+    else:
+        inliner_count = len(dataset_inliner)
+        outlier_count = len(dataset_outlier)
 
-        assert self.part_count % world_size == 0
+        current_percentage = outlier_count * 100 / (outlier_count + inliner_count)
 
-        self.part_count_local = cfg.DATASET.PART_COUNT // world_size
+        if current_percentage < target_percentage:  # we don't have enought outliers
+            outlier_count = int(inliner_count * target_percentage / (100.0 - target_percentage))
+            dataset_outlier = increase_length(dataset_outlier, outlier_count)
+        else:  # we don't have enought inliers
+            inlier_count = int(outlier_count * (100.0 - target_percentage) / target_percentage)
+            dataset_inliner = increase_length(dataset_inliner, inlier_count)
 
-        if train:
-            path = cfg.DATASET.PATH
-        else:
-            path = cfg.DATASET.PATH_TEST
+    dataset = Dataset(dataset_outlier + dataset_inliner)
 
-        for r in range(2, cfg.DATASET.MAX_RESOLUTION_LEVEL + 1):
-            files = []
-            for i in range(self.part_count_local * rank, self.part_count_local * (rank + 1)):
-                file = path % (r, i)
-                files.append(file)
-            self.filenames[r] = files
+    dataset.shuffle()
 
-        self.buffer_size_b = 1024 ** 2 * buffer_size_mb
+    # Post checks
+    outlier_count = len([1 for x in dataset if x[0] not in inliner_classes])
+    inliner_count = len([1 for x in dataset if x[0] in inliner_classes])
+    real_percetage = outlier_count * 100.0 / (outlier_count + inliner_count)
+    assert abs(real_percetage - target_percentage) < 0.01, "Didn't create dataset with requested percentage of outliers"
 
-        self.current_filenames = []
-
-    def reset(self, lod, batch_size):
-        assert lod in self.filenames.keys()
-        self.current_filenames = self.filenames[lod]
-        self.batch_size = batch_size
-
-        if self.train:
-            img_size = 2 ** lod + 2 ** (lod - 3)
-        else:
-            img_size = 2 ** lod
-
-        if self.needs_labels:
-            self.features = {
-                'data': db.FixedLenFeature([3, img_size, img_size], db.uint8),
-                'label': db.FixedLenFeature([], db.int64)
-            }
-        else:
-            self.features = {
-                'data': db.FixedLenFeature([3, img_size, img_size], db.uint8)
-            }
-
-        buffer_size = self.buffer_size_b // (self.channels * img_size * img_size)
-
-        if self.seed is None:
-            seed = np.uint64(time.time() * 1000)
-        else:
-            seed = self.seed
-            self.logger.info('!' * 80)
-            self.logger.info('! Seed is used for to shuffle data in TFRecordsDataset!')
-            self.logger.info('!' * 80)
-
-        self.iterator = db.ParsedTFRecordsDatasetIterator(self.current_filenames, self.features, self.batch_size, buffer_size, seed=seed)
-
-    def __iter__(self):
-        return self.iterator
-
-    def __len__(self):
-        return self.part_count_local * self.part_size
-
-
-def make_imagenet_dataloader(cfg, logger, dataset, GPU_batch_size, target_size, local_rank, do_random_crops=True):
-    class BatchCollator(object):
-        def __init__(self, device=torch.device("cpu")):
-            self.device = device
-            self.flip = cfg.DATASET.FLIP_IMAGES
-            self.size = target_size
-            p = math.log2(target_size)
-            self.source_size = 2 ** p + 2 ** (p - 3)
-            self.do_random_crops = do_random_crops
-
-        def __call__(self, batch):
-            with torch.no_grad():
-                x, = batch
-
-                if self.do_random_crops:
-                    images = []
-                    for im in x:
-                        deltax = self.source_size - target_size
-                        deltay = self.source_size - target_size
-                        offx = np.random.randint(deltax + 1)
-                        offy = np.random.randint(deltay + 1)
-                        im = im[:, offy:offy + self.size, offx:offx + self.size]
-                        images.append(im)
-                    x = np.stack(images)
-
-                if self.flip:
-                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
-                    x = np.array([img[flip] for img, flip in zip(x, flips)])
-                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
-
-                return x
-
-    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
-
-    return batches
-
-
-def make_imagenet_dataloader_y(cfg, logger, dataset, GPU_batch_size, target_size, local_rank, do_random_crops=True):
-    class BatchCollator(object):
-        def __init__(self, device=torch.device("cpu")):
-            self.device = device
-            self.flip = cfg.DATASET.FLIP_IMAGES
-            self.size = target_size
-            p = math.log2(target_size)
-            self.source_size = 2 ** p + 2 ** (p - 3)
-            self.do_random_crops = do_random_crops
-
-        def __call__(self, batch):
-            with torch.no_grad():
-                x, y = batch
-
-                if self.do_random_crops:
-                    images = []
-                    for im in x:
-                        deltax = self.source_size - target_size
-                        deltay = self.source_size - target_size
-                        offx = np.random.randint(deltax + 1)
-                        offy = np.random.randint(deltay + 1)
-                        im = im[:, offy:offy+self.size, offx:offx+self.size]
-                        images.append(im)
-                    x = np.stack(images)
-
-                if self.flip:
-                    flips = [(slice(None, None, None), slice(None, None, None), slice(None, None, random.choice([-1, None]))) for _ in range(x.shape[0])]
-                    x = np.array([img[flip] for img, flip in zip(x, flips)])
-                x = torch.tensor(x, requires_grad=True, device=torch.device(self.device), dtype=torch.float32)
-                return x, y
-
-    batches = db.data_loader(iter(dataset), BatchCollator(local_rank), len(dataset) // GPU_batch_size)
-
-    return batches
+    return dataset

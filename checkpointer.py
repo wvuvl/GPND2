@@ -36,12 +36,12 @@ def load_model(x, state_dict):
 
 
 class Checkpointer(object):
-    def __init__(self, cfg, models, auxiliary=None, logger=None, save=True):
+    def __init__(self, folder, models, auxiliary=None, logger=None, save=True):
         self.models = models
         self.auxiliary = auxiliary
-        self.cfg = cfg
         self.logger = logger
         self._save = save
+        self.folder = folder
 
     def save(self, _name, **kwargs):
         if not self._save:
@@ -59,7 +59,7 @@ class Checkpointer(object):
 
         @utils.async_func
         def save_data():
-            save_file = os.path.join(self.cfg.OUTPUT_DIR, "%s.pth" % _name)
+            save_file = os.path.join(self.folder, "%s.pth" % _name)
             self.logger.info("Saving checkpoint to %s" % save_file)
             torch.save(data, save_file)
             self.tag_last_checkpoint(save_file)
@@ -67,7 +67,7 @@ class Checkpointer(object):
         return save_data()
 
     def load(self, ignore_last_checkpoint=False, file_name=None):
-        save_file = os.path.join(self.cfg.OUTPUT_DIR, "last_checkpoint")
+        save_file = os.path.join(self.folder, "last_checkpoint")
         try:
             with open(save_file, "r") as last_checkpoint:
                 f = last_checkpoint.read().strip()
@@ -115,6 +115,6 @@ class Checkpointer(object):
         return checkpoint
 
     def tag_last_checkpoint(self, last_filename):
-        save_file = os.path.join(self.cfg.OUTPUT_DIR, "last_checkpoint")
+        save_file = os.path.join(self.folder, "last_checkpoint")
         with open(save_file, "w") as f:
             f.write(last_filename)

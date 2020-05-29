@@ -25,7 +25,6 @@ class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
         self.warmup_factor = warmup_factor
         self.warmup_iters = warmup_iters
         self.batch_size = 1
-        self.lod = 0
         self.reference_batch_size = reference_batch_size
 
         self.optimizer = optimizer
@@ -51,9 +50,8 @@ class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
         self._step_count = 0
         self.step(last_epoch)
 
-    def set_batch_size(self, batch_size, lod):
+    def set_batch_size(self, batch_size):
         self.batch_size = batch_size
-        self.lod = lod
         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
             param_group['lr'] = lr
 
@@ -63,7 +61,7 @@ class WarmupMultiStepLR(torch.optim.lr_scheduler._LRScheduler):
             alpha = float(self.last_epoch) / self.warmup_iters
             warmup_factor = self.warmup_factor * (1 - alpha) + alpha
         return [
-            base_lr[self.lod]
+            base_lr
             * warmup_factor
             * self.gamma ** bisect_right(self.milestones, self.last_epoch)
             # * float(self.batch_size)
@@ -91,9 +89,9 @@ class ComboMultiStepLR:
             self.schedulers[name] = WarmupMultiStepLR(opt, lr=base_lr, **kwargs)
         self.last_epoch = 0
 
-    def set_batch_size(self, batch_size, lod):
+    def set_batch_size(self, batch_size):
         for x in self.schedulers.values():
-            x.set_batch_size(batch_size, lod)
+            x.set_batch_size(batch_size)
 
     def step(self, epoch=None):
         for x in self.schedulers.values():

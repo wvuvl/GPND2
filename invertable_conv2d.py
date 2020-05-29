@@ -28,9 +28,7 @@ class MappingBlock(nn.Module):
         with torch.no_grad():
             self.fc = ln.Linear(inputs, output, lrmul=lrmul)
             self.fc.weight.data = self.fc.weight.data.double()
-            # print("Before", torch.norm(self.fc.weight))
-            self.fc.weight.data = self.fc.weight.data * 0.9 + gram_schmidt(self.fc.weight.data) * 0.1
-            # print("After", torch.norm(self.fc.weight))
+            self.fc.weight.data = gram_schmidt(self.fc.weight.data)
             self.fc.bias.data = self.fc.bias.data.double()
             self.i_fc = ln.Linear(output, inputs, lrmul=lrmul)
             self.last_activation = None
@@ -58,7 +56,6 @@ class MappingBlock(nn.Module):
         return h_p.double()[..., None] * self.fc.weight
 
 
-@MAPPINGS.register("Invertable_F_Map")
 class Mapping(nn.Module):
     def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=None, mapping_fmaps=None):
         super(Mapping, self).__init__()
@@ -70,7 +67,7 @@ class Mapping(nn.Module):
 
         for i in range(mapping_layers):
             outputs = dlatent_size if i == mapping_layers - 1 else mapping_fmaps
-            block = MappingBlock(inputs, outputs, lrmul=0.1)
+            block = MappingBlock(inputs, outputs, lrmul=0.01)
             inputs = outputs
             self.blocks.append(block)
 
@@ -99,29 +96,29 @@ class Mapping(nn.Module):
 
 if __name__ == "__main__":
     def test_mapping_block():
-        b = MappingBlock(32, 32, 0.01)
+        b = MappingBlock(24, 24, 0.01)
         b.compute_inverse()
 
-        x = torch.randn(1, 32).double()
+        x = torch.randn(1, 24).double()
 
         r = b(x)
 
         _x = b.reverse(r)
 
-        # print(x)
-        # print(r)
-        # print(_x)
-        # print(x - _x)
+        print(x)
+        print(r)
+        print(_x)
+        print(x - _x)
 
         print(torch.norm(x))
         print(torch.norm(_x - x))
 
 
     def test_f_map():
-        b = Mapping(4, 32)
+        b = Mapping(6, 64)
         b.compute_inverse()
 
-        x = torch.randn(1, 32)
+        x = torch.randn(1, 64)
         m = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
         logp = m.log_prob(x)
         logPz_orig = np.sum(logp.cpu().numpy())
@@ -132,10 +129,10 @@ if __name__ == "__main__":
         logp = m.log_prob(_x)
         logPz_rec = np.sum(logp.cpu().numpy())
 
-        # print(x)
-        # print(r)
-        # print(_x)
-        # print(x - _x)
+        print(x)
+        print(r)
+        print(_x)
+        print(x - _x)
 
         print(torch.norm(x))
         print(torch.norm(_x - x))
@@ -167,10 +164,10 @@ if __name__ == "__main__":
 
                 return J
 
-        b = Mapping(4, 32)
+        b = Mapping(8, 8)
         b.compute_inverse()
 
-        x = torch.randn(1, 32)
+        x = torch.randn(1, 8)
         x = x.double()
 
         r = b(x)
@@ -181,8 +178,8 @@ if __name__ == "__main__":
 
         j_numeracal = compute_jacobian_using_finite_differences(x, b)
 
-        # print(j)
-        # print(j_numeracal)
+        print(j)
+        print(j_numeracal)
         print(torch.norm(j_numeracal))
         print(torch.norm(j_numeracal - j))
 
