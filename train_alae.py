@@ -85,12 +85,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
         dlatent_avg_beta=cfg.MODEL.DLATENT_AVG_BETA,
-        style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
-        z_regression=cfg.MODEL.Z_REGRESSION
     )
     model.cuda(local_rank)
     model.train()
@@ -100,13 +98,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
-        truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
-        z_regression=cfg.MODEL.Z_REGRESSION)
+    )
     model_s.cuda(local_rank)
     model_s.eval()
     model_s.requires_grad_(False)

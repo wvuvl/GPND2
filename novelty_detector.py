@@ -125,13 +125,10 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
-        truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER,
-        z_regression=cfg.MODEL.Z_REGRESSION)
+        encoder=cfg.MODEL.ENCODER)
     model_s.cuda(local_rank)
     model_s.eval()
     model_s.requires_grad_(False)

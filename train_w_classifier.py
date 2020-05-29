@@ -33,8 +33,7 @@ def train(cfg, logger, local_rank, folding_id, inliner_classes):
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
-        encoder=cfg.MODEL.ENCODER
-    )
+        encoder=cfg.MODEL.ENCODER)
     model_s.cuda(local_rank)
     model_s.eval()
     model_s.requires_grad_(False)

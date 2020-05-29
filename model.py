@@ -29,8 +29,7 @@ class DLatent(nn.Module):
 
 class Model(nn.Module):
     def __init__(self, startf=32, maxf=256, layer_count=3, latent_size=128, mapping_layers=5, dlatent_avg_beta=None,
-                 truncation_psi=None, truncation_cutoff=None, style_mixing_prob=None, channels=3, generator="",
-                 encoder="", z_regression=False):
+                 channels=3, generator="", encoder=""):
         super(Model, self).__init__()
 
         self.layer_count = layer_count
