@@ -102,7 +102,7 @@ if __name__ == "__main__":
         b = MappingBlock(32, 32, 0.01)
         b.compute_inverse()
 
-        x = torch.randn(1, 32).double()
+        x = torch.randn(1000, 32).double()
 
         r = b(x)
 
@@ -116,12 +116,17 @@ if __name__ == "__main__":
         print(torch.norm(x))
         print(torch.norm(_x - x))
 
+        mse = ((x - _x) ** 2).mean(dim=1)
+        avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
+        print('===> MSE:  {:.8f}'.format(mse.mean()))
+        print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
+
 
     def test_f_map():
         b = Mapping(4, 32)
         b.compute_inverse()
 
-        x = torch.randn(1, 32)
+        x = torch.randn(1000, 32)
         m = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([1.0]))
         logp = m.log_prob(x)
         logPz_orig = np.sum(logp.cpu().numpy())
@@ -139,6 +144,11 @@ if __name__ == "__main__":
 
         print(torch.norm(x))
         print(torch.norm(_x - x))
+
+        mse = ((x - _x) ** 2).mean(dim=1)
+        avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
+        print('===> MSE:  {:.8f}'.format(mse.mean()))
+        print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
 
         print(logPz_orig)
         print(logPz_rec)
@@ -170,7 +180,7 @@ if __name__ == "__main__":
         b = Mapping(4, 32)
         b.compute_inverse()
 
-        x = torch.randn(1, 32)
+        x = torch.randn(1000, 32)
         x = x.double()
 
         r = b(x)
@@ -186,6 +196,10 @@ if __name__ == "__main__":
         print(torch.norm(j_numeracal))
         print(torch.norm(j_numeracal - j))
 
+        mse = ((j_numeracal - j) ** 2).mean(dim=1)
+        avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
+        print('===> MSE:  {:.8f}'.format(mse.mean()))
+        print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
 
     with torch.no_grad():
         test_mapping_block()
