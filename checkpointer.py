@@ -16,7 +16,7 @@
 import os
 from torch import nn
 import torch
-import utils
+from utils import utils
 
 
 def get_model_dict(x):

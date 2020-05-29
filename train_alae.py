@@ -17,7 +17,7 @@ import torch.utils.data
 from torchvision.utils import save_image
 from net import *
 import os
-import utils
+from utils import utils
 from checkpointer import Checkpointer
 from scheduler import ComboMultiStepLR
 from custom_adam import LREQAdam

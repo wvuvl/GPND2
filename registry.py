@@ -1,4 +1,4 @@
-from utils import Registry
+from utils.utils import Registry
 
 MODELS = Registry()
 ENCODERS = Registry()

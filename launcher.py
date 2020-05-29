@@ -33,7 +33,7 @@ def cleanup():
     distributed.destroy_process_group()
 
 
-def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
+def _run(rank, world_size, fn, defaults, write_log, no_cuda, args, kwargs):
     if world_size > 1:
         setup(rank, world_size)
     if not no_cuda:
@@ -88,6 +88,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
 
     args.distributed = world_size > 1
     args_to_pass = dict(cfg=cfg, logger=logger, local_rank=rank, world_size=world_size, distributed=args.distributed)
+    args_to_pass.update(kwargs)
     signature = inspect.signature(fn)
     matching_args = {}
     for key in args_to_pass.keys():
@@ -99,7 +100,7 @@ def _run(rank, world_size, fn, defaults, write_log, no_cuda, args):
         cleanup()
 
 
-def run(fn, defaults, description='', default_config='configs/experiment.yaml', world_size=1, write_log=True, no_cuda=False):
+def run(fn, defaults, description='', default_config='configs/experiment.yaml', world_size=1, write_log=True, no_cuda=False, **kwargs):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
         "-c", "--config-file",
@@ -124,8 +125,8 @@ def run(fn, defaults, description='', default_config='configs/experiment.yaml', 
 
     if world_size > 1:
         mp.spawn(_run,
-                 args=(world_size, fn, defaults, write_log, no_cuda, args),
+                 args=(world_size, fn, defaults, write_log, no_cuda, args, kwargs),
                  nprocs=world_size,
                  join=True)
     else:
-        _run(0, world_size, fn, defaults, write_log, no_cuda, args)
+        _run(0, world_size, fn, defaults, write_log, no_cuda, args, kwargs)
