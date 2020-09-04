@@ -74,7 +74,7 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         save_pic(resultsample)
 
 
-def train(cfg, logger, local_rank, world_size, distributed):
+def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]):
     torch.cuda.set_device(local_rank)
     model = Model(
         startf=cfg.MODEL.START_CHANNEL_COUNT,
@@ -151,9 +151,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         'z_discriminator_s': model_s.z_discriminator,
     }
 
-    folding_id = 0
-    inliner_classes = [3]
-
     output_folder = os.path.join('results_' + str(folding_id) + "_" + "_".join([str(x) for x in inliner_classes]))
     output_folder = os.path.join(cfg.OUTPUT_DIR, output_folder)
     os.makedirs(output_folder, exist_ok=True)
@@ -169,7 +166,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                     'tracker': tracker
                                 },
                                 logger=logger,
-                                save=local_rank == 0)
+                                save=True)
 
     extra_checkpoint_data = checkpointer.load()
     logger.info("Starting from epoch: %d" % (scheduler.start_epoch()))
