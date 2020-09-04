@@ -59,7 +59,7 @@ def extract_statistics(cfg, train_set, model, output_folder):
 
         z, _ = model.encode(x)
 
-        rec = model.decoder.forward(z, True)
+        rec = model.generator(z, True)
 
         recon_batch = rec.cpu().detach().numpy()
         x = x.cpu().detach().numpy()
@@ -119,7 +119,6 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER)
@@ -128,9 +127,8 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
     model_s.requires_grad_(False)
 
     model_dict = {
-        'discriminator_s': model_s.encoder,
-        'generator_s': model_s.decoder,
-        'mapping_tl_s': model_s.mapping_tl,
+        'encoder_s': model_s.encoder,
+        'generator_s': model_s.generator,
     }
 
     output_folder = os.path.join('results_' + str(folding_id) + "_" + "_".join([str(x) for x in inliner_classes]))
@@ -145,24 +143,6 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
     extra_checkpoint_data = checkpointer.load()
     last_epoch = list(extra_checkpoint_data['auxiliary']['scheduler'].values())[0]['last_epoch']
     logger.info("Model trained for %d epochs" % last_epoch)
-
-
-    # ###############################
-    # # Check
-    # ##############################
-    # with torch.no_grad():
-    #     z = torch.randn(1000, cfg.MODEL.LATENT_SPACE_SIZE)
-    #     w = model_s.mapping_fl(z)
-    #     _z = model_s.mapping_fl.reverse(w)
-    #
-    #     criterion = torch.nn.MSELoss()
-    #
-    #     mse = ((z - _z) ** 2).mean(dim=1)
-    #
-    #     avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
-    #
-    #     print('===> MSE:  {:.8f}'.format(mse.mean()))
-    #     print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
 
     with torch.no_grad():
         counts, bin_edges, gennorm_param = extract_statistics(cfg, train_set, model_s, output_folder)
@@ -189,10 +169,8 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
             z, _ = model_s.encode(x)
 
-            rec = model_s.decoder.forward(z, True)
+            rec = model_s.generator(z, True)
 
-            # z = z.squeeze()
-            #
             z = z.cpu().detach().numpy()
 
             recon_batch = rec.cpu().detach().numpy()
@@ -243,17 +221,18 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
         # Find initial threshold guess
         def eval(th):
-            return evaluate(th, 1.0, 0.2)
+            return evaluate(th, 10.0, 0.15)
         best_th, best_f1 = find_maximum(eval, -1000, 1000, 1e-2)
         logger.info("Initial e: %f best f1: %f" % (best_th, best_f1))
+        #
+        # res = dual_annealing(func, [
+        #     [best_th - 100.0, best_th + 100.0],
+        #     [0.0, 20.0],
+        #     [0.0, 1.0]
+        # ], maxiter=20000)
 
-        res = dual_annealing(func, [
-            [best_th - 100.0, best_th + 100.0],
-            [0.0, 20.0],
-            [0.0, 1.0]
-        ], maxiter=20000)
-
-        threshold, beta, alpha = res.x
+        # threshold, beta, alpha = res.x
+        threshold, beta, alpha = best_th, 10.0, 0.15
 
         best_f1 = evaluate(threshold, beta, alpha)
 
@@ -270,13 +249,13 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
         return evaluate(logger, percentage, inliner_classes, y_scores, threshold, y_true)
 
-    # percentages = cfg.DATASET.PERCENTAGES
-    percentages = [50]
+    percentages = cfg.DATASET.PERCENTAGES
+    # percentages = [50]
 
     results = {}
 
     for p in percentages:
-        plt.figure(num=None, figsize=(8, 6), dpi=180, facecolor='w', edgecolor='k')
+        # plt.figure(num=None, figsize=(8, 6), dpi=180, facecolor='w', edgecolor='k')
         a, phase_threshold, e = compute_threshold_coeffs(valid_set, p)
         results[p] = test(test_set, p, e, phase_threshold, a)
 
@@ -284,6 +263,5 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
 
 if __name__ == "__main__":
-    gpu_count = torch.cuda.device_count()
     run(main, get_cfg_defaults(), description='', default_config='configs/mnist.yaml',
         world_size=1, folding_id=0, inliner_classes=[3])
