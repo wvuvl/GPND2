@@ -37,6 +37,7 @@ import scipy.stats
 from scipy.special import loggamma
 from timeit import default_timer as timer
 from scipy.optimize import minimize, dual_annealing
+from utils.threshold_search import find_maximum_mv, find_maximum_mv_it
 
 
 def r_pdf(x, bins, counts):
@@ -216,25 +217,25 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
             return get_f1(true_positive, false_positive, false_negative)
 
         def func(x):
-            threshold, phase_threshold, alpha = x
-            return -evaluate(threshold, phase_threshold, alpha)
+            beta, alpha = x
 
-        # Find initial threshold guess
+            # Find threshold
+            def eval(th):
+                return evaluate(th, beta, alpha)
+
+            best_th, best_f1 = find_maximum(eval, -200, 200, 1e-2)
+
+            return best_f1
+
+        cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [20.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
+                                     n=8, max_iter=6)
+        beta, alpha = cmax
+
+        # Find threshold
         def eval(th):
-            return evaluate(th, 10.0, 0.15)
-        best_th, best_f1 = find_maximum(eval, -1000, 1000, 1e-2)
-        logger.info("Initial e: %f best f1: %f" % (best_th, best_f1))
-        #
-        # res = dual_annealing(func, [
-        #     [best_th - 100.0, best_th + 100.0],
-        #     [0.0, 20.0],
-        #     [0.0, 1.0]
-        # ], maxiter=20000)
+            return evaluate(th, beta, alpha)
 
-        # threshold, beta, alpha = res.x
-        threshold, beta, alpha = best_th, 10.0, 0.15
-
-        best_f1 = evaluate(threshold, beta, alpha)
+        threshold, best_f1 = find_maximum(eval, -1000, 1000, 1e-3)
 
         logger.info("Best e: %f Best beta: %f Best a: %f best f1: %f" % (threshold, beta, alpha, best_f1))
         return alpha, beta, threshold
@@ -249,8 +250,8 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
         return evaluate(logger, percentage, inliner_classes, y_scores, threshold, y_true)
 
-    percentages = cfg.DATASET.PERCENTAGES
-    # percentages = [50]
+    #percentages = cfg.DATASET.PERCENTAGES
+    percentages = [50]
 
     results = {}
 
