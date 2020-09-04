@@ -76,7 +76,6 @@ class EncodeBlock(nn.Module):
 
         if self.last:
             x = self.dense(x.view(x.shape[0], -1))
-            x = F.leaky_relu(x, 0.2)
         else:
             x = self.conv_2(self.blur(x))
             x = downscale2d(x)
@@ -283,6 +282,24 @@ class MappingBlock(nn.Module):
         return x
 
 
+class Wclassifier(nn.Module):
+    def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
+        super(Wclassifier, self).__init__()
+        inputs = latent_size
+        self.mapping_layers = mapping_layers
+        self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
+        for i in range(mapping_layers):
+            outputs = dlatent_size if i == mapping_layers - 1 else mapping_fmaps
+            block = MappingBlock(inputs, outputs, 1.0)
+            inputs = outputs
+            self.map_blocks.append(block)
+
+    def forward(self, x):
+        for i in range(self.mapping_layers):
+            x = self.map_blocks[i](x)
+        return x
+
+
 @MAPPINGS.register("MappingToLatent")
 class MappingToLatent(nn.Module):
     def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
@@ -322,3 +339,29 @@ class MappingFromLatent(nn.Module):
             x = self.map_blocks[i](x)
         return x
 
+
+class ZDiscriminator(nn.Module):
+    def __init__(self, z_size, d=256):
+        super(ZDiscriminator, self).__init__()
+
+        class Block(nn.Module):
+            def __init__(self, inputs, output, lrmul):
+                super(Block, self).__init__()
+                self.fc1 = ln.Linear(inputs, output, lrmul=lrmul)
+                self.fc2 = ln.Linear(output, output, lrmul=lrmul)
+
+            def forward(self, x):
+                x = F.leaky_relu(self.fc1(x), 0.2)
+                x = F.leaky_relu(self.fc2(x), 0.2)
+                return x
+
+        self.block1 = Block(z_size, d, 1.0)
+        self.block2 = Block(d, d, 1.0)
+        self.block3 = Block(d, d, 1.0)
+        self.fc = ln.Linear(d * 3, 1, lrmul=1.0)
+
+    def forward(self, x):
+        x1 = self.block1(x)
+        x2 = self.block2(x1)
+        x3 = self.block3(x2)
+        return self.fc(torch.cat([x1, x2, x3], dim=1))

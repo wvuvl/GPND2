@@ -40,12 +40,6 @@ class Model(nn.Module):
             mapping_fmaps=latent_size,
             mapping_layers=3)
 
-        self.mapping_fl = MAPPINGS["Invertable_F_Map"](
-            latent_size=latent_size,
-            dlatent_size=latent_size,
-            mapping_fmaps=latent_size,
-            mapping_layers=mapping_layers)
-
         self.decoder = GENERATORS[generator](
             startf=startf,
             layer_count=layer_count,
@@ -60,6 +54,8 @@ class Model(nn.Module):
             latent_size=latent_size,
             channels=channels)
 
+        self.z_discriminator = ZDiscriminator(latent_size)
+
         self.dlatent_avg = DLatent(latent_size)
         self.latent_size = latent_size
         self.dlatent_avg_beta = dlatent_avg_beta
@@ -67,7 +63,7 @@ class Model(nn.Module):
     def generate(self, z=None, count=32, noise=True, return_w=False):
         if z is None:
             z = torch.randn(count, self.latent_size)
-        w = self.mapping_fl(z)
+        w = z  # self.mapping_fl(z)
 
         if self.dlatent_avg_beta is not None:
             with torch.no_grad():
@@ -105,32 +101,43 @@ class Model(nn.Module):
                 Xp = self.generate(count=x.shape[0], noise=True)
 
             self.encoder.requires_grad_(True)
+            self.z_discriminator.requires_grad_(False)
 
-            _, d_result_real = self.encode(x)
+            z1, d_result_real = self.encode(x)
 
-            _, d_result_fake = self.encode(Xp.detach())
+            z2, d_result_fake = self.encode(Xp.detach())
 
             loss_d = losses.discriminator_logistic_simple_gp(d_result_fake, d_result_real, x)
-            return loss_d
+
+            zd_result_fake = self.z_discriminator(z1)
+
+            loss_zg = losses.generator_logistic_non_saturating(zd_result_fake)
+            return loss_d, loss_zg
         else:
             with torch.no_grad():
                 z = torch.randn(x.shape[0], self.latent_size)
 
             self.encoder.requires_grad_(False)
+            self.z_discriminator.requires_grad_(True)
 
             rec = self.generate(count=x.shape[0], z=z.detach(), noise=True)
 
-            _, d_result_fake = self.encode(rec)
+            z_fake, d_result_fake = self.encode(rec)
+
+            zd_result_fake = self.z_discriminator(z_fake.detach())
+            z_real = torch.randn(x.shape[0], self.latent_size).requires_grad_(True)
+            zd_result_real = self.z_discriminator(z_real)
 
             loss_g = losses.generator_logistic_non_saturating(d_result_fake)
+            loss_zd = losses.discriminator_logistic_simple_gp(zd_result_fake, zd_result_real, z_real)
 
-            return loss_g
+            return loss_g, loss_zd
 
     def lerp(self, other, betta):
         if hasattr(other, 'module'):
             other = other.module
         with torch.no_grad():
-            params = list(self.mapping_tl.parameters()) + list(self.mapping_fl.parameters()) + list(self.decoder.parameters()) + list(self.encoder.parameters()) + list(self.dlatent_avg.parameters())
-            other_param = list(other.mapping_tl.parameters()) + list(other.mapping_fl.parameters()) + list(other.decoder.parameters()) + list(other.encoder.parameters()) + list(other.dlatent_avg.parameters())
+            params = list(self.mapping_tl.parameters()) + list(self.decoder.parameters()) + list(self.encoder.parameters()) + list(self.dlatent_avg.parameters())
+            other_param = list(other.mapping_tl.parameters()) + list(other.decoder.parameters()) + list(other.encoder.parameters()) + list(other.dlatent_avg.parameters())
             for p, p_other in zip(params, other_param):
                 p.data.lerp_(p_other.data, 1.0 - betta)

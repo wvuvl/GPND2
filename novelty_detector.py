@@ -57,14 +57,9 @@ def extract_statistics(cfg, train_set, model, output_folder):
     for y, x in data_loader:
         x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
 
-        w, _ = model.encode(x)
-        z = model.mapping_fl.reverse(w)
-        _w = model.mapping_fl(z)
+        z, _ = model.encode(x)
 
-        print(torch.norm(w))
-        print(torch.norm(_w - w))
-
-        rec = model.decoder.forward(w, True)
+        rec = model.decoder.forward(z, True)
 
         recon_batch = rec.cpu().detach().numpy()
         x = x.cpu().detach().numpy()
@@ -74,9 +69,8 @@ def extract_statistics(cfg, train_set, model, output_folder):
             rlist.append(distance)
 
         z = z.cpu().detach().numpy()
-        w = w.cpu().detach().numpy()
 
-        zlist.append(w)
+        zlist.append(z)
 
     zlist = np.concatenate(zlist)
 
@@ -96,7 +90,7 @@ def extract_statistics(cfg, train_set, model, output_folder):
         save_plot(r"$z$",
                   'Probability density',
                   r"PDF of embeding $p\left(z \right)$",
-                  output_folder + '/embedding.pdf')
+                  output_folder + '/embeddingz.pdf')
 
     def fmin(func, x0, args, disp):
         x0 = [2.0, 0.0, 1.0]
@@ -137,7 +131,6 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
         'discriminator_s': model_s.encoder,
         'generator_s': model_s.decoder,
         'mapping_tl_s': model_s.mapping_tl,
-        'mapping_fl_s': model_s.mapping_fl
     }
 
     output_folder = os.path.join('results_' + str(folding_id) + "_" + "_".join([str(x) for x in inliner_classes]))
@@ -153,24 +146,23 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
     last_epoch = list(extra_checkpoint_data['auxiliary']['scheduler'].values())[0]['last_epoch']
     logger.info("Model trained for %d epochs" % last_epoch)
 
-    model_s.mapping_fl.compute_inverse()
 
-    ###############################
-    # Check
-    ##############################
-    with torch.no_grad():
-        z = torch.randn(1000, cfg.MODEL.LATENT_SPACE_SIZE)
-        w = model_s.mapping_fl(z)
-        _z = model_s.mapping_fl.reverse(w)
-
-        criterion = torch.nn.MSELoss()
-
-        mse = ((z - _z) ** 2).mean(dim=1)
-
-        avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
-
-        print('===> MSE:  {:.8f}'.format(mse.mean()))
-        print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
+    # ###############################
+    # # Check
+    # ##############################
+    # with torch.no_grad():
+    #     z = torch.randn(1000, cfg.MODEL.LATENT_SPACE_SIZE)
+    #     w = model_s.mapping_fl(z)
+    #     _z = model_s.mapping_fl.reverse(w)
+    #
+    #     criterion = torch.nn.MSELoss()
+    #
+    #     mse = ((z - _z) ** 2).mean(dim=1)
+    #
+    #     avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
+    #
+    #     print('===> MSE:  {:.8f}'.format(mse.mean()))
+    #     print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
 
     with torch.no_grad():
         counts, bin_edges, gennorm_param = extract_statistics(cfg, train_set, model_s, output_folder)
@@ -195,10 +187,10 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
         for label, x in data_loader:
             x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE,  cfg.MODEL.INPUT_IMAGE_SIZE)
 
-            w, _ = model_s.encode(x)
-            z = model_s.mapping_fl.reverse(w)
-            rec = model_s.decoder.forward(w, True)
-            #
+            z, _ = model_s.encode(x)
+
+            rec = model_s.decoder.forward(z, True)
+
             # z = z.squeeze()
             #
             z = z.cpu().detach().numpy()
@@ -209,7 +201,7 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
             for i in range(x.shape[0]):
                 logD = 0
                 p = scipy.stats.gennorm.pdf(z[i], gennorm_param[0, :], gennorm_param[1, :], gennorm_param[2, :])
-                logPz = 0 # np.sum(np.log(p))
+                logPz = np.sum(np.log(p))
 
                 # Sometimes, due to rounding some element in p may be zero resulting in Inf in logPz
                 # In this case, just assign some large negative value to make sure that the sample
@@ -251,13 +243,13 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
         # Find initial threshold guess
         def eval(th):
-            return evaluate(th, 0.0, 0.2)
+            return evaluate(th, 1.0, 0.2)
         best_th, best_f1 = find_maximum(eval, -1000, 1000, 1e-2)
         logger.info("Initial e: %f best f1: %f" % (best_th, best_f1))
 
         res = dual_annealing(func, [
             [best_th - 100.0, best_th + 100.0],
-            [-5.0, 5.0],
+            [0.0, 20.0],
             [0.0, 1.0]
         ], maxiter=20000)
 

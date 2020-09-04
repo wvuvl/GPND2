@@ -54,10 +54,10 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         rec1 = model.decoder(Z, noise=False)
         rec2 = model.decoder(Z, noise=True)
 
-        Z = model.mapping_fl(samplez)
+        Z = samplez
         g_rec = model.decoder(Z, noise=True)
 
-        resultsample = torch.cat([sample_in, rec1, rec2, g_rec], dim=0)
+        resultsample = torch.cat([sample_in, rec2, g_rec], dim=0)
 
         @utils.async_func
         def save_pic(x_rec):
@@ -72,7 +72,7 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
                                  lod2batch.iteration // 1000)
                              )
             print("Saved to %s" % f)
-            save_image(result_sample, f, nrow=min(32, lod2batch.get_per_GPU_batch_size()))
+            save_image(result_sample, f, nrow=min(64, lod2batch.get_per_GPU_batch_size()))
 
         save_pic(resultsample)
 
@@ -110,7 +110,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
     decoder = model.decoder
     encoder = model.encoder
     mapping_tl = model.mapping_tl
-    mapping_fl = model.mapping_fl
+    z_discriminator = model.z_discriminator
     dlatent_avg = model.dlatent_avg
 
     count_param_override.print = lambda a: logger.info(a)
@@ -126,7 +126,10 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     decoder_optimizer = LREQAdam([
         {'params': decoder.parameters()},
-        {'params': mapping_fl.parameters()}
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
+
+    z_discriminator_optimizer = LREQAdam([
+        {'params': z_discriminator.parameters()},
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     encoder_optimizer = LREQAdam([
@@ -137,7 +140,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     scheduler = ComboMultiStepLR(optimizers=
                                  {
                                     'encoder_optimizer': encoder_optimizer,
-                                    'decoder_optimizer': decoder_optimizer
+                                    'decoder_optimizer': decoder_optimizer,
+                                    'z_discriminator_optimizer': z_discriminator_optimizer
                                  },
                                  milestones=cfg.TRAIN.LEARNING_DECAY_STEPS,
                                  gamma=cfg.TRAIN.LEARNING_DECAY_RATE,
@@ -147,12 +151,12 @@ def train(cfg, logger, local_rank, world_size, distributed):
         'discriminator': encoder,
         'generator': decoder,
         'mapping_tl': mapping_tl,
-        'mapping_fl': mapping_fl,
+        'z_discriminator': z_discriminator,
         'dlatent_avg': dlatent_avg,
         'discriminator_s': model_s.encoder,
         'generator_s': model_s.decoder,
         'mapping_tl_s': model_s.mapping_tl,
-        'mapping_fl_s': model_s.mapping_fl
+        'z_discriminator_s': model_s.z_discriminator,
     }
 
     folding_id = 0
@@ -230,16 +234,18 @@ def train(cfg, logger, local_rank, world_size, distributed):
                     x = x.permute(0, 3, 1, 2)
 
             encoder_optimizer.zero_grad()
-            loss_d = model(x, d_train=True, ae=False)
-            tracker.update(dict(loss_d=loss_d))
-            loss_d.backward()
+            loss_d, loss_zg = model(x, d_train=True, ae=False)
+            tracker.update(dict(loss_d=loss_d, loss_zg=loss_zg))
+            (loss_zg + loss_d).backward()
             encoder_optimizer.step()
 
             decoder_optimizer.zero_grad()
-            loss_g = model(x, d_train=False, ae=False)
-            tracker.update(dict(loss_g=loss_g))
-            loss_g.backward()
+            z_discriminator_optimizer.zero_grad()
+            loss_g, loss_zd = model(x, d_train=False, ae=False)
+            tracker.update(dict(loss_g=loss_g, loss_zd=loss_zd))
+            (loss_g + loss_zd).backward()
             decoder_optimizer.step()
+            z_discriminator_optimizer.step()
 
             encoder_optimizer.zero_grad()
             decoder_optimizer.zero_grad()

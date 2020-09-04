@@ -35,7 +35,7 @@ def discriminator_logistic_simple_gp(d_result_fake, d_result_real, reals, r1_gam
     if r1_gamma != 0.0:
         real_loss = d_result_real.sum()
         real_grads = torch.autograd.grad(real_loss, reals, create_graph=True, retain_graph=True)[0]
-        r1_penalty = torch.sum(real_grads.pow(2.0), dim=[1, 2, 3])
+        r1_penalty = torch.sum(real_grads.pow(2.0), dim=[1, 2, 3] if reals.ndim == 4 else [1])
         loss = loss + r1_penalty * (r1_gamma * 0.5)
     return loss.mean()
 
@@ -50,3 +50,9 @@ def discriminator_gradient_penalty(d_result_real, reals, r1_gamma=10.0):
 
 def generator_logistic_non_saturating(d_result_fake):
     return F.softplus(-d_result_fake).mean()
+
+
+def discriminator_classic(d_result_fake, d_result_real):
+    return F.binary_cross_entropy_with_logits(d_result_fake, torch.zeros_like(d_result_fake)) +\
+           F.binary_cross_entropy_with_logits(d_result_real, torch.ones_like(d_result_real))
+

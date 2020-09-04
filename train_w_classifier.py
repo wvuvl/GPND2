@@ -21,6 +21,9 @@ from tracker import LossTracker
 from model import Model
 from launcher import run
 from defaults import get_cfg_defaults
+from net import Wclassifier
+from custom_adam import LREQAdam
+import losses
 
 
 def train(cfg, logger, local_rank, folding_id, inliner_classes):
@@ -60,21 +63,39 @@ def train(cfg, logger, local_rank, folding_id, inliner_classes):
 
     model_s.mapping_fl.compute_inverse()
 
-    ###############################
-    # Check
-    ##############################
-    z = torch.randn(1000, cfg.MODEL.LATENT_SPACE_SIZE)
-    w = model_s.mapping_fl(z)
-    _z = model_s.mapping_fl.reverse(w)
+    classifier = Wclassifier(latent_size=32, dlatent_size=1, mapping_fmaps=256)
 
-    criterion = torch.nn.MSELoss()
+    optimizer = LREQAdam([
+        {'params': classifier.parameters()},
+    ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
-    mse = ((z - _z) ** 2).mean(dim=1)
+    tracker = LossTracker(cfg.OUTPUT_DIR)
+    rnd = np.random.RandomState(5)
 
-    avg_psnr = (10 * torch.log10(1.0 / mse)).mean()
+    for it in range(30):
+        for i in range(1000):
+            z = torch.randn(64, cfg.MODEL.LATENT_SPACE_SIZE)
+            w = model_s.mapping_fl(z)
 
-    print('===> MSE:  {:.8f}'.format(mse.mean()))
-    print('===> Avg. PSNR: {:.8f} dB'.format(avg_psnr))
+            w_fake = torch.randn(512, cfg.MODEL.LATENT_SPACE_SIZE)
+            w_fake2 = torch.tensor((rnd.rand(512, cfg.MODEL.LATENT_SPACE_SIZE) * 4 - 1)).float().cuda()
+
+            d_result_real = classifier(w)
+            d_result_fake = torch.cat((classifier(w_fake), classifier(w_fake2)), dim=0)
+
+            optimizer.zero_grad()
+            loss_d = losses.discriminator_classic(d_result_fake, d_result_real)
+            loss_d.backward()
+            optimizer.step()
+            tracker.update(dict(loss_d=loss_d))
+
+        logger.info('\n%s, lr: %.12f' % (str(tracker),
+            optimizer.param_groups[0]['lr']))
+
+        tracker.register_means(it)
+        tracker.plot()
+
+    torch.save(classifier.state_dict(), os.path.join(output_folder, "wclassifier.pkl"))
 
 
 if __name__ == "__main__":
