@@ -253,8 +253,6 @@ class Generator(nn.Module):
 
             self.style_sizes += [2 * (inputs if has_first_conv else outputs), 2 * outputs]
 
-            #print("decode_block%d %s styles in: %dl out resolution: %d" % (
-            #    (i + 1), millify(count_parameters(block)), outputs, resolution))
             self.decode_block.append(block)
             inputs = outputs
             mul //= 2
@@ -282,19 +280,18 @@ class MappingBlock(nn.Module):
         return x
 
 
-@MAPPINGS.register("MappingToLatent")
-class MappingToLatent(nn.Module):
-    def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
-        super(MappingToLatent, self).__init__()
-        inputs = latent_size
+@DISCRIMINATORS.register("D")
+class Discriminator(nn.Module):
+    def __init__(self, mapping_layers=5, net_inputs=256, hidden_size=256, net_outputs=1):
+        super(Discriminator, self).__init__()
+        inputs = net_inputs
         self.mapping_layers = mapping_layers
         self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
         for i in range(mapping_layers):
-            outputs = dlatent_size if i == mapping_layers - 1 else mapping_fmaps
+            outputs = hidden_size if i == mapping_layers - 1 else net_outputs
             block = ln.Linear(inputs, outputs, lrmul=0.1)
             inputs = outputs
             self.map_blocks.append(block)
-            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
 
     def forward(self, x):
         for i in range(self.mapping_layers):
@@ -302,26 +299,7 @@ class MappingToLatent(nn.Module):
         return x
 
 
-@MAPPINGS.register("MappingFromLatent")
-class MappingFromLatent(nn.Module):
-    def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
-        super(MappingFromLatent, self).__init__()
-        inputs = dlatent_size
-        self.mapping_layers = mapping_layers
-        self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
-        for i in range(mapping_layers):
-            outputs = latent_size if i == mapping_layers - 1 else mapping_fmaps
-            block = MappingBlock(inputs, outputs, lrmul=0.1)
-            inputs = outputs
-            self.map_blocks.append(block)
-            #print("dense %d %s" % ((i + 1), millify(count_parameters(block))))
-
-    def forward(self, x):
-        for i in range(self.mapping_layers):
-            x = self.map_blocks[i](x)
-        return x
-
-
+@DISCRIMINATORS.register("Dz")
 class ZDiscriminator(nn.Module):
     def __init__(self, z_size, d=256):
         super(ZDiscriminator, self).__init__()

@@ -50,12 +50,9 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         sample_in = sample
 
         Z, _ = model.encode(sample_in)
+        rec2 = model.generator(Z, noise=True)
 
-        rec1 = model.decoder(Z, noise=False)
-        rec2 = model.decoder(Z, noise=True)
-
-        Z = samplez
-        g_rec = model.decoder(Z, noise=True)
+        g_rec = model.generator(samplez, noise=True)
 
         resultsample = torch.cat([sample_in, rec2, g_rec], dim=0)
 
@@ -84,8 +81,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        dlatent_avg_beta=cfg.MODEL.DLATENT_AVG_BETA,
-        mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
@@ -98,7 +93,6 @@ def train(cfg, logger, local_rank, world_size, distributed):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        mapping_layers=cfg.MODEL.MAPPING_LAYERS,
         channels=cfg.MODEL.CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
@@ -107,16 +101,15 @@ def train(cfg, logger, local_rank, world_size, distributed):
     model_s.eval()
     model_s.requires_grad_(False)
 
-    decoder = model.decoder
+    generator = model.generator
     encoder = model.encoder
-    mapping_tl = model.mapping_tl
+    discriminator = model.discriminator
     z_discriminator = model.z_discriminator
-    dlatent_avg = model.dlatent_avg
 
     count_param_override.print = lambda a: logger.info(a)
 
     logger.info("Trainable parameters generator:")
-    count_parameters(decoder)
+    count_parameters(generator)
 
     logger.info("Trainable parameters discriminator:")
     count_parameters(encoder)
@@ -124,8 +117,8 @@ def train(cfg, logger, local_rank, world_size, distributed):
     arguments = dict()
     arguments["iteration"] = 0
 
-    decoder_optimizer = LREQAdam([
-        {'params': decoder.parameters()},
+    generator_optimizer = LREQAdam([
+        {'params': generator.parameters()},
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     z_discriminator_optimizer = LREQAdam([
@@ -134,13 +127,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     encoder_optimizer = LREQAdam([
         {'params': encoder.parameters()},
-        {'params': mapping_tl.parameters()},
+        {'params': discriminator.parameters()},
     ], lr=cfg.TRAIN.BASE_LEARNING_RATE, betas=(cfg.TRAIN.ADAM_BETA_0, cfg.TRAIN.ADAM_BETA_1), weight_decay=0)
 
     scheduler = ComboMultiStepLR(optimizers=
                                  {
                                     'encoder_optimizer': encoder_optimizer,
-                                    'decoder_optimizer': decoder_optimizer,
+                                    'generator_optimizer': generator_optimizer,
                                     'z_discriminator_optimizer': z_discriminator_optimizer
                                  },
                                  milestones=cfg.TRAIN.LEARNING_DECAY_STEPS,
@@ -148,14 +141,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                  reference_batch_size=32, base_lr=cfg.TRAIN.LEARNING_RATES)
 
     model_dict = {
-        'discriminator': encoder,
-        'generator': decoder,
-        'mapping_tl': mapping_tl,
+        'encoder': encoder,
+        'generator': generator,
+        'discriminator': discriminator,
         'z_discriminator': z_discriminator,
-        'dlatent_avg': dlatent_avg,
-        'discriminator_s': model_s.encoder,
-        'generator_s': model_s.decoder,
-        'mapping_tl_s': model_s.mapping_tl,
+        'encoder_s': model_s.encoder,
+        'generator_s': model_s.generator,
+        'discriminator_s': model_s.discriminator,
         'z_discriminator_s': model_s.z_discriminator,
     }
 
@@ -172,7 +164,7 @@ def train(cfg, logger, local_rank, world_size, distributed):
                                 model_dict,
                                 {
                                     'encoder_optimizer': encoder_optimizer,
-                                    'decoder_optimizer': decoder_optimizer,
+                                    'decoder_optimizer': generator_optimizer,
                                     'scheduler': scheduler,
                                     'tracker': tracker
                                 },
@@ -184,11 +176,9 @@ def train(cfg, logger, local_rank, world_size, distributed):
 
     arguments.update(extra_checkpoint_data)
 
-    layer_to_resolution = decoder.layer_to_resolution
+    layer_to_resolution = generator.layer_to_resolution
 
     train_set, _, _ = make_datasets(cfg, folding_id, inliner_classes)
-
-    #dataset = TFRecordsDataset(cfg, logger, rank=local_rank, world_size=world_size, buffer_size_mb=1024, channels=cfg.MODEL.CHANNELS)
 
     rnd = np.random.RandomState(3456)
     latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
@@ -201,11 +191,11 @@ def train(cfg, logger, local_rank, world_size, distributed):
     sample = sample.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
     # sample = (sample / 127.5 - 1.)
 
-    lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, decoder_optimizer])
+    lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, generator_optimizer])
 
     for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
-        lod2batch.set_epoch(epoch, [encoder_optimizer, decoder_optimizer])
+        lod2batch.set_epoch(epoch, [encoder_optimizer, generator_optimizer])
 
         logger.info("Batch size: %d, Batch size per GPU: %d, dataset size: %d" % (
                                                                 lod2batch.get_batch_size(),
@@ -239,21 +229,21 @@ def train(cfg, logger, local_rank, world_size, distributed):
             (loss_zg + loss_d).backward()
             encoder_optimizer.step()
 
-            decoder_optimizer.zero_grad()
+            generator_optimizer.zero_grad()
             z_discriminator_optimizer.zero_grad()
             loss_g, loss_zd = model(x, d_train=False, ae=False)
             tracker.update(dict(loss_g=loss_g, loss_zd=loss_zd))
             (loss_g + loss_zd).backward()
-            decoder_optimizer.step()
+            generator_optimizer.step()
             z_discriminator_optimizer.step()
 
             encoder_optimizer.zero_grad()
-            decoder_optimizer.zero_grad()
+            generator_optimizer.zero_grad()
             lae = model(x, d_train=True, ae=True)
             tracker.update(dict(lae=lae))
             (lae).backward()
             encoder_optimizer.step()
-            decoder_optimizer.step()
+            generator_optimizer.step()
 
             betta = 0.5 ** (lod2batch.get_batch_size() / (1000.0))
             model_s.lerp(model, betta)
@@ -267,13 +257,13 @@ def train(cfg, logger, local_rank, world_size, distributed):
                 #     checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
                 if lod2batch.is_time_to_report():
                     save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer,
-                                decoder_optimizer, output_folder)
+                                generator_optimizer, output_folder)
 
         scheduler.step()
 
         if local_rank == 0:
             checkpointer.save("model_tmp")
-            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, decoder_optimizer, output_folder)
+            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, generator_optimizer, output_folder)
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:
