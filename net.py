@@ -301,27 +301,24 @@ class Discriminator(nn.Module):
 
 @DISCRIMINATORS.register("Dz")
 class ZDiscriminator(nn.Module):
-    def __init__(self, z_size, d=256):
+    def __init__(self, z_size, d=128):
         super(ZDiscriminator, self).__init__()
+        self.linear1 = nn.Linear(z_size, d)
+        self.linear2 = nn.Linear(d, d)
+        self.linear3 = nn.Linear(d, 1)
 
-        class Block(nn.Module):
-            def __init__(self, inputs, output, lrmul):
-                super(Block, self).__init__()
-                self.fc1 = ln.Linear(inputs, output, lrmul=lrmul)
-                self.fc2 = ln.Linear(output, output, lrmul=lrmul)
-
-            def forward(self, x):
-                x = F.leaky_relu(self.fc1(x), 0.2)
-                x = F.leaky_relu(self.fc2(x), 0.2)
-                return x
-
-        self.block1 = Block(z_size, d, 1.0)
-        self.block2 = Block(d, d, 1.0)
-        self.block3 = Block(d, d, 1.0)
-        self.fc = ln.Linear(d * 3, 1, lrmul=1.0)
+    def weight_init(self, mean, std):
+        for m in self._modules:
+            normal_init(self._modules[m], mean, std)
 
     def forward(self, x):
-        x1 = self.block1(x)
-        x2 = self.block2(x1)
-        x3 = self.block3(x2)
-        return self.fc(torch.cat([x1, x2, x3], dim=1))
+        x = F.leaky_relu((self.linear1(x)), 0.2)
+        x = F.leaky_relu((self.linear2(x)), 0.2)
+        x = self.linear3(x)
+        return x
+
+
+def normal_init(m, mean, std):
+    if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+        m.weight.data.normal_(mean, std)
+        m.bias.data.zero_()

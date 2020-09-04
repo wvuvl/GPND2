@@ -30,7 +30,7 @@ class Model(nn.Module):
             net_inputs=latent_size,
             hidden_size=latent_size,
             net_outputs=1,
-            mapping_layers=3)
+            mapping_layers=1)
 
         self.generator = GENERATORS[generator](
             startf=startf,

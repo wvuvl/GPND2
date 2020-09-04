@@ -249,18 +249,17 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
             per_epoch_ptime = epoch_end_time - epoch_start_time
 
             lod2batch.step()
-            if local_rank == 0:
-                # if lod2batch.is_time_to_save():
-                #     checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
-                if lod2batch.is_time_to_report():
-                    save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer,
-                                generator_optimizer, output_folder)
+            # if lod2batch.is_time_to_save():
+            #     checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
+            if lod2batch.is_time_to_report():
+                save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer,
+                            generator_optimizer, output_folder)
 
         scheduler.step()
 
-        if local_rank == 0:
-            checkpointer.save("model_tmp")
-            save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, generator_optimizer, output_folder)
+        checkpointer.save("model_tmp")
+        save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer,
+                    generator_optimizer, output_folder)
 
     logger.info("Training finish!... save training results")
     if local_rank == 0:

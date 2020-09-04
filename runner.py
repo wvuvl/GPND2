@@ -48,7 +48,7 @@ def f(setting):
     return res
 
 
-gpu_count = min(utils.multiprocessing.get_gpu_count(), 6)
+gpu_count = min(utils.multiprocessing.get_gpu_count(), 8)
 
 results = utils.multiprocessing.map(f, gpu_count, settings)
 

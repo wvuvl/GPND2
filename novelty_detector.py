@@ -83,7 +83,7 @@ def extract_statistics(cfg, train_set, model, output_folder):
                   r"PDF of distance for reconstruction error, $p\left(\left \|\| I - \hat{I} \right \|\| \right)$",
                   output_folder + '/reconstruction_error.pdf')
 
-    for i in range(cfg.MODEL.LATENT_SIZE):
+    for i in range(cfg.MODEL.LATENT_SPACE_SIZE):
         plt.hist(zlist[:, i], density=True, bins='auto', histtype='step')
 
     if cfg.MAKE_PLOTS:
@@ -96,8 +96,8 @@ def extract_statistics(cfg, train_set, model, output_folder):
         x0 = [2.0, 0.0, 1.0]
         return scipy.optimize.fmin(func, x0, args, xtol=1e-12, ftol=1e-12, disp=0)
 
-    gennorm_param = np.zeros([3, cfg.MODEL.LATENT_SIZE])
-    for i in range(cfg.MODEL.LATENT_SIZE):
+    gennorm_param = np.zeros([3, cfg.MODEL.LATENT_SPACE_SIZE])
+    for i in range(cfg.MODEL.LATENT_SPACE_SIZE):
         betta, loc, scale = scipy.stats.gennorm.fit(zlist[:, i], optimizer=fmin)
         gennorm_param[0, i] = betta
         gennorm_param[1, i] = loc
@@ -156,7 +156,7 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
         data_loader = make_dataloader(dataset, cfg.TEST.BATCH_SIZE, torch.cuda.current_device())
 
-        N = cfg.MODEL.INPUT_IMAGE_CHANNELS * cfg.MODEL.INPUT_IMAGE_SIZE * cfg.MODEL.INPUT_IMAGE_SIZE - cfg.MODEL.LATENT_SIZE
+        N = cfg.MODEL.INPUT_IMAGE_CHANNELS * cfg.MODEL.INPUT_IMAGE_SIZE * cfg.MODEL.INPUT_IMAGE_SIZE - cfg.MODEL.LATENT_SPACE_SIZE
         logC = loggamma(N / 2.0) - (N / 2.0) * np.log(2.0 * np.pi)
 
         def logPe_func(x):

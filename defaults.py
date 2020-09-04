@@ -17,7 +17,7 @@ from yacs.config import CfgNode as CN
 
 
 _C = CN()
-
+_C.OUTPUT_FOLDER = "results"
 _C.DATASET = CN()
 _C.DATASET.FLIP_IMAGES = True
 
@@ -33,7 +33,6 @@ _C.DATASET.TOTAL_CLASS_COUNT = 10
 _C.DATASET.FOLDS_COUNT = 5
 
 _C.MODEL = CN()
-_C.MODEL.LATENT_SIZE = 32
 _C.MODEL.INPUT_IMAGE_SIZE = 32
 _C.MODEL.INPUT_IMAGE_CHANNELS = 1
 # If zd_merge true, will use zd discriminator that looks at entire batch.
