@@ -282,24 +282,6 @@ class MappingBlock(nn.Module):
         return x
 
 
-class Wclassifier(nn.Module):
-    def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
-        super(Wclassifier, self).__init__()
-        inputs = latent_size
-        self.mapping_layers = mapping_layers
-        self.map_blocks: nn.ModuleList[MappingBlock] = nn.ModuleList()
-        for i in range(mapping_layers):
-            outputs = dlatent_size if i == mapping_layers - 1 else mapping_fmaps
-            block = MappingBlock(inputs, outputs, 1.0)
-            inputs = outputs
-            self.map_blocks.append(block)
-
-    def forward(self, x):
-        for i in range(self.mapping_layers):
-            x = self.map_blocks[i](x)
-        return x
-
-
 @MAPPINGS.register("MappingToLatent")
 class MappingToLatent(nn.Module):
     def __init__(self, mapping_layers=5, latent_size=256, dlatent_size=256, mapping_fmaps=256):
