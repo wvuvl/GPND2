@@ -23,20 +23,20 @@ import os
 
 class RunningMean:
     def __init__(self):
-        self.mean = 0.0
+        self._mean = 0.0
         self.n = 0
 
     def __iadd__(self, value):
-        self.mean = (float(value) + self.mean * self.n)/(self.n + 1)
+        self._mean = (float(value) + self._mean * self.n)/(self.n + 1)
         self.n += 1
         return self
 
     def reset(self):
-        self.mean = 0.0
+        self._mean = 0.0
         self.n = 0
 
     def mean(self):
-        return self.mean
+        return self._mean
 
 
 class RunningMeanTorch:
@@ -68,10 +68,10 @@ class LossTracker:
     def update(self, d):
         for k, v in d.items():
             if k not in self.tracks:
-                self.add(k)
+                self.add(k, isinstance(k, torch.Tensor))
             self.tracks[k] += v
 
-    def add(self, name, pytorch=True):
+    def add(self, name, pytorch):
         assert name not in self.tracks, "Name is already used"
         if pytorch:
             track = RunningMeanTorch()
