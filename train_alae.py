@@ -32,6 +32,8 @@ from defaults import get_cfg_defaults
 import driver
 import time
 from PIL import Image
+from novelty_detector import eval_model_on_valid
+import operator
 
 
 def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, encoder_optimizer, decoder_optimizer, output_folder):
@@ -190,6 +192,32 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
 
     lod2batch.set_epoch(scheduler.start_epoch(), [encoder_optimizer, generator_optimizer])
 
+    scores_list = []
+
+    try:
+        with open(os.path.join(output_folder, "scores.txt"), "r") as f:
+            lines = f.readlines()
+            lines = [l[:-1].strip() for l in lines]
+            lines = [l.split(' ') for l in lines]
+            lines = [l for l in lines if len(l) == 2]
+            scores_list = [(x[0], float(x[1]))for x in lines]
+            # for l in scores_list:
+            #     print("%s: %f" % l)
+    except FileNotFoundError:
+        pass
+
+    def save(epoch):
+        score = eval_model_on_valid(cfg, logger, model_s, folding_id, inliner_classes)
+        filename = "model_%d" % epoch
+        checkpointer.save(filename).wait()
+        scores_list.append((filename, score))
+        with open(os.path.join(output_folder, "scores.txt"), "w") as f:
+            f.writelines([x[0] + " " + str(x[1]) + "\n" for x in scores_list])
+
+    def last_score():
+        return 0 if len(scores_list) == 0 else scores_list[-1][1]
+
+    epoch = None
     for epoch in range(scheduler.start_epoch(), cfg.TRAIN.TRAIN_EPOCHS):
         model.train()
         lod2batch.set_epoch(epoch, [encoder_optimizer, generator_optimizer])
@@ -248,6 +276,9 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
             epoch_end_time = time.time()
             per_epoch_ptime = epoch_end_time - epoch_start_time
 
+            # tracker.update(dict(score_a=score_a, score_b=score_b, score_c=score_c))
+            tracker.update(dict(score=last_score()))
+
             lod2batch.step()
             # if lod2batch.is_time_to_save():
             #     checkpointer.save("model_tmp_intermediate_lod%d" % lod_for_saving_model)
@@ -257,13 +288,16 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
 
         scheduler.step()
 
-        checkpointer.save("model_tmp")
-        save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer,
-                    generator_optimizer, output_folder)
+        if epoch % 20 == 0:
+            save(epoch)
+
+        save_sample(lod2batch, tracker, sample, samplez, x, logger, model_s, cfg, encoder_optimizer, generator_optimizer, output_folder)
 
     logger.info("Training finish!... save training results")
-    if local_rank == 0:
-        checkpointer.save("model_final").wait()
+    if epoch is not None:
+        save(epoch)
+    best_model_name, best_model_score = max(scores_list, key=operator.itemgetter(1))
+    checkpointer.tag_best_checkpoint(best_model_name)
 
 
 if __name__ == "__main__":

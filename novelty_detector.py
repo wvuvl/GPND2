@@ -49,7 +49,7 @@ def r_pdf(x, bins, counts):
     return 1e-308
 
 
-def extract_statistics(cfg, train_set, model, output_folder):
+def extract_statistics(cfg, train_set, model, output_folder, no_plots=False):
     rlist = []
     zlist = []
 
@@ -77,7 +77,7 @@ def extract_statistics(cfg, train_set, model, output_folder):
 
     counts, bin_edges = np.histogram(rlist, bins=30, density=True)
 
-    if cfg.MAKE_PLOTS:
+    if cfg.MAKE_PLOTS and not no_plots:
         plt.plot(bin_edges[1:], counts, linewidth=2)
         save_plot(r"Distance, $\left \|\| I - \hat{I} \right \|\|$",
                   'Probability density',
@@ -87,7 +87,7 @@ def extract_statistics(cfg, train_set, model, output_folder):
     for i in range(cfg.MODEL.LATENT_SPACE_SIZE):
         plt.hist(zlist[:, i], density=True, bins='auto', histtype='step')
 
-    if cfg.MAKE_PLOTS:
+    if cfg.MAKE_PLOTS and not no_plots:
         save_plot(r"$z$",
                   'Probability density',
                   r"PDF of embeding $p\left(z \right)$",
@@ -105,6 +105,132 @@ def extract_statistics(cfg, train_set, model, output_folder):
         gennorm_param[2, i] = scale
 
     return counts, bin_edges, gennorm_param
+
+
+def eval_model_on_valid(cfg, logger, model_s, folding_id, inliner_classes):
+    train_set, valid_set, test_set = make_datasets(cfg, folding_id, inliner_classes)
+    print('Validation set size: %d' % len(valid_set))
+
+    output_folder = os.path.join('results_' + str(folding_id) + "_" + "_".join([str(x) for x in inliner_classes]))
+    output_folder = os.path.join(cfg.OUTPUT_DIR, output_folder)
+    os.makedirs(output_folder, exist_ok=True)
+
+    with torch.no_grad():
+        counts, bin_edges, gennorm_param = extract_statistics(cfg, train_set, model_s, output_folder)
+
+    novelty_detector = model_s, bin_edges, counts, gennorm_param
+    p = 50
+    alpha, beta, threshold, f1 = compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, p, novelty_detector)
+    return f1
+
+
+def run_novely_prediction_on_dataset(cfg, dataset, inliner_classes, percentage, novelty_detector, concervative=False):
+    model_s, bin_edges, counts, gennorm_param, = novelty_detector
+    dataset.shuffle()
+
+    dataset = create_set_with_outlier_percentage(dataset, inliner_classes, percentage, concervative)
+
+    result = []
+    gt_novel = []
+
+    data_loader = make_dataloader(dataset, cfg.TEST.BATCH_SIZE, torch.cuda.current_device())
+
+    N = cfg.MODEL.INPUT_IMAGE_CHANNELS * cfg.MODEL.INPUT_IMAGE_SIZE * cfg.MODEL.INPUT_IMAGE_SIZE - cfg.MODEL.LATENT_SPACE_SIZE
+    logC = loggamma(N / 2.0) - (N / 2.0) * np.log(2.0 * np.pi)
+
+    def logPe_func(x):
+        # p_{\|W^{\perp}\|} (\|w^{\perp}\|)
+        # \| w^{\perp} \|}^{m-n}
+        return logC - (N - 1) * np.log(x), np.log(r_pdf(x, bin_edges, counts))
+
+    for label, x in data_loader:
+        x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
+
+        z, _ = model_s.encode(x)
+
+        rec = model_s.generator(z, True)
+
+        z = z.cpu().detach().numpy()
+
+        recon_batch = rec.cpu().detach().numpy()
+        x = x.cpu().detach().numpy()
+
+        for i in range(x.shape[0]):
+            logD = 0
+            p = scipy.stats.gennorm.pdf(z[i], gennorm_param[0, :], gennorm_param[1, :], gennorm_param[2, :])
+            logPz = np.sum(np.log(p))
+
+            # Sometimes, due to rounding some element in p may be zero resulting in Inf in logPz
+            # In this case, just assign some large negative value to make sure that the sample
+            # is classified as unknown.
+            if not np.isfinite(logPz):
+                logPz = -1000
+
+            distance = np.linalg.norm(x[i].flatten() - recon_batch[i].flatten())
+
+            logPe_p1, logPe_p2 = logPe_func(distance)
+
+            result.append((logD, logPz, logPe_p1, logPe_p2))
+            gt_novel.append(label[i].item() in inliner_classes)
+
+    result = np.asarray(result, dtype=np.float32)
+    ground_truth = np.asarray(gt_novel, dtype=np.float32)
+    return result, ground_truth
+
+
+def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage, novelty_detector):
+    y_scores_components, y_true = run_novely_prediction_on_dataset(cfg, valid_set, inliner_classes, percentage, novelty_detector, concervative=True)
+
+    y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
+
+    def evaluate(threshold, beta, alpha):
+        coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
+        y_scores = (y_scores_components * coeff).mean(axis=1)
+
+        y_false = np.logical_not(y_true)
+
+        y = np.greater(y_scores, threshold)
+        true_positive = np.sum(np.logical_and(y, y_true))
+        false_positive = np.sum(np.logical_and(y, y_false))
+        false_negative = np.sum(np.logical_and(np.logical_not(y), y_true))
+        return get_f1(true_positive, false_positive, false_negative)
+
+    def func(x):
+        beta, alpha = x
+
+        # Find threshold
+        def eval(th):
+            return evaluate(th, beta, alpha)
+
+        best_th, best_f1 = find_maximum(eval, -200, 200, 1e-2)
+
+        return best_f1
+
+    cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [20.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
+                                 n=8, max_iter=6)
+    beta, alpha = cmax
+
+    # beta, alpha = 10, 0.2
+
+    # Find threshold
+    def eval(th):
+        return evaluate(th, beta, alpha)
+
+    threshold, best_f1 = find_maximum(eval, -1000, 1000, 1e-3)
+
+    logger.info("Best e: %f Best beta: %f Best a: %f best f1: %f" % (threshold, beta, alpha, best_f1))
+    return alpha, beta, threshold, best_f1
+
+
+def test(cfg, logger, test_set, inliner_classes, percentage, novelty_detector, alpha, beta, threshold):
+    y_scores_components, y_true = run_novely_prediction_on_dataset(cfg, test_set, inliner_classes, percentage, novelty_detector, concervative=True)
+    y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
+
+    coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
+
+    y_scores = (y_scores_components * coeff).mean(axis=1)
+
+    return evaluate(logger, percentage, inliner_classes, y_scores, threshold, y_true)
 
 
 def main(cfg, logger, local_rank, folding_id, inliner_classes):
@@ -139,7 +265,8 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
     checkpointer = Checkpointer(output_folder,
                                 model_dict,
                                 logger=logger,
-                                save=False)
+                                save=False,
+                                test=True)
 
     extra_checkpoint_data = checkpointer.load()
     last_epoch = list(extra_checkpoint_data['auxiliary']['scheduler'].values())[0]['last_epoch']
@@ -148,117 +275,16 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
     with torch.no_grad():
         counts, bin_edges, gennorm_param = extract_statistics(cfg, train_set, model_s, output_folder)
 
-    def run_novely_prediction_on_dataset(dataset, percentage, concervative=False):
-        dataset.shuffle()
-        dataset = create_set_with_outlier_percentage(dataset, inliner_classes, percentage, concervative)
-
-        result = []
-        gt_novel = []
-
-        data_loader = make_dataloader(dataset, cfg.TEST.BATCH_SIZE, torch.cuda.current_device())
-
-        N = cfg.MODEL.INPUT_IMAGE_CHANNELS * cfg.MODEL.INPUT_IMAGE_SIZE * cfg.MODEL.INPUT_IMAGE_SIZE - cfg.MODEL.LATENT_SPACE_SIZE
-        logC = loggamma(N / 2.0) - (N / 2.0) * np.log(2.0 * np.pi)
-
-        def logPe_func(x):
-            # p_{\|W^{\perp}\|} (\|w^{\perp}\|)
-            # \| w^{\perp} \|}^{m-n}
-            return logC - (N - 1) * np.log(x), np.log(r_pdf(x, bin_edges, counts))
-
-        for label, x in data_loader:
-            x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE,  cfg.MODEL.INPUT_IMAGE_SIZE)
-
-            z, _ = model_s.encode(x)
-
-            rec = model_s.generator(z, True)
-
-            z = z.cpu().detach().numpy()
-
-            recon_batch = rec.cpu().detach().numpy()
-            x = x.cpu().detach().numpy()
-
-            for i in range(x.shape[0]):
-                logD = 0
-                p = scipy.stats.gennorm.pdf(z[i], gennorm_param[0, :], gennorm_param[1, :], gennorm_param[2, :])
-                logPz = np.sum(np.log(p))
-
-                # Sometimes, due to rounding some element in p may be zero resulting in Inf in logPz
-                # In this case, just assign some large negative value to make sure that the sample
-                # is classified as unknown.
-                if not np.isfinite(logPz):
-                    logPz = -1000
-
-                distance = np.linalg.norm(x[i].flatten() - recon_batch[i].flatten())
-
-                logPe_p1, logPe_p2 = logPe_func(distance)
-
-                result.append((logD, logPz, logPe_p1, logPe_p2))
-                gt_novel.append(label[i].item() in inliner_classes)
-
-        result = np.asarray(result, dtype=np.float32)
-        ground_truth = np.asarray(gt_novel, dtype=np.float32)
-        return result, ground_truth
-
-    def compute_threshold_coeffs(valid_set, percentage):
-        y_scores_components, y_true = run_novely_prediction_on_dataset(valid_set, percentage, concervative=True)
-
-        y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
-
-        def evaluate(threshold, beta, alpha):
-            coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
-            y_scores = (y_scores_components * coeff).mean(axis=1)
-
-            y_false = np.logical_not(y_true)
-
-            y = np.greater(y_scores, threshold)
-            true_positive = np.sum(np.logical_and(y, y_true))
-            false_positive = np.sum(np.logical_and(y, y_false))
-            false_negative = np.sum(np.logical_and(np.logical_not(y), y_true))
-            return get_f1(true_positive, false_positive, false_negative)
-
-        def func(x):
-            beta, alpha = x
-
-            # Find threshold
-            def eval(th):
-                return evaluate(th, beta, alpha)
-
-            best_th, best_f1 = find_maximum(eval, -200, 200, 1e-2)
-
-            return best_f1
-
-        cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [20.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
-                                     n=8, max_iter=6)
-        beta, alpha = cmax
-
-        # Find threshold
-        def eval(th):
-            return evaluate(th, beta, alpha)
-
-        threshold, best_f1 = find_maximum(eval, -1000, 1000, 1e-3)
-
-        logger.info("Best e: %f Best beta: %f Best a: %f best f1: %f" % (threshold, beta, alpha, best_f1))
-        return alpha, beta, threshold
-
-    def test(test_set, percentage, threshold, beta, alpha):
-        y_scores_components, y_true = run_novely_prediction_on_dataset(test_set, percentage, concervative=True)
-        y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
-
-        coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
-
-        y_scores = (y_scores_components * coeff).mean(axis=1)
-
-        return evaluate(logger, percentage, inliner_classes, y_scores, threshold, y_true)
+    novelty_detector = model_s, bin_edges, counts, gennorm_param,
 
     #percentages = cfg.DATASET.PERCENTAGES
     percentages = [50]
 
     results = {}
-
     for p in percentages:
         # plt.figure(num=None, figsize=(8, 6), dpi=180, facecolor='w', edgecolor='k')
-        a, phase_threshold, e = compute_threshold_coeffs(valid_set, p)
-        results[p] = test(test_set, p, e, phase_threshold, a)
+        alpha, beta, threshold, _ = compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, p, novelty_detector)
+        results[p] = test(cfg, logger, test_set, inliner_classes, p, novelty_detector, alpha, beta, threshold)
 
     return results
 
