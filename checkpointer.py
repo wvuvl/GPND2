@@ -36,12 +36,13 @@ def load_model(x, state_dict):
 
 
 class Checkpointer(object):
-    def __init__(self, folder, models, auxiliary=None, logger=None, save=True):
+    def __init__(self, folder, models, auxiliary=None, logger=None, save=True, test=False):
         self.models = models
         self.auxiliary = auxiliary
         self.logger = logger
         self._save = save
         self.folder = folder
+        self.test = test
 
     def save(self, _name, **kwargs):
         if not self._save:
@@ -67,7 +68,7 @@ class Checkpointer(object):
         return save_data()
 
     def load(self, ignore_last_checkpoint=False, file_name=None):
-        save_file = os.path.join(self.folder, "last_checkpoint")
+        save_file = os.path.join(self.folder, "best_checkpoint" if self.test else "last_checkpoint")
         try:
             with open(save_file, "r") as last_checkpoint:
                 f = last_checkpoint.read().strip()
@@ -118,3 +119,9 @@ class Checkpointer(object):
         save_file = os.path.join(self.folder, "last_checkpoint")
         with open(save_file, "w") as f:
             f.write(last_filename)
+
+    def tag_best_checkpoint(self, _name):
+        file = os.path.join(self.folder, "%s.pth" % _name)
+        save_file = os.path.join(self.folder, "best_checkpoint")
+        with open(save_file, "w") as f:
+            f.write(file)

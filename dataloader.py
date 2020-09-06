@@ -107,6 +107,7 @@ def create_set_with_outlier_percentage(dataset, inliner_classes, target_percenta
         return data_list
 
     if not concervative:
+        raise RuntimeError("Don't use it, too noisy! We do want to utilize all the data that we have and not throw away anything")
         inliner_count = len(dataset_inliner)
         outlier_count = inliner_count * target_percentage // (100 - target_percentage)
 
