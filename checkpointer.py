@@ -60,9 +60,9 @@ class Checkpointer(object):
 
         @utils.async_func
         def save_data():
-            save_file = os.path.join(self.folder, "%s.pth" % _name)
-            self.logger.info("Saving checkpoint to %s" % save_file)
-            torch.save(data, save_file)
+            save_file = "%s.pth" % _name
+            self.logger.info("Saving checkpoint to %s" % os.path.join(self.folder, save_file))
+            torch.save(data, os.path.join(self.folder, save_file))
             self.tag_last_checkpoint(save_file)
 
         return save_data()
@@ -72,6 +72,8 @@ class Checkpointer(object):
         try:
             with open(save_file, "r") as last_checkpoint:
                 f = last_checkpoint.read().strip()
+                f = os.path.basename(f)
+                f = os.path.join(self.folder, f)
         except IOError:
             self.logger.info("No checkpoint found. Initializing model from scratch")
             if file_name is None:
@@ -121,7 +123,7 @@ class Checkpointer(object):
             f.write(last_filename)
 
     def tag_best_checkpoint(self, _name):
-        file = os.path.join(self.folder, "%s.pth" % _name)
+        file = os.path.join("%s.pth" % _name)
         save_file = os.path.join(self.folder, "best_checkpoint")
         with open(save_file, "w") as f:
             f.write(file)

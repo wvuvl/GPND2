@@ -52,4 +52,4 @@ gpu_count = min(utils.multiprocessing.get_gpu_count(), 8)
 
 results = utils.multiprocessing.map(f, gpu_count, settings)
 
-save_results(results, os.path.join(cfg.OUTPUT_FOLDER, cfg.RESULTS_NAME))
+save_results(results, os.path.join(cfg.OUTPUT_DIR, cfg.RESULTS_NAME))

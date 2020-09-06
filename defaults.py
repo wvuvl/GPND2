@@ -17,7 +17,6 @@ from yacs.config import CfgNode as CN
 
 
 _C = CN()
-_C.OUTPUT_FOLDER = "results"
 _C.DATASET = CN()
 _C.DATASET.FLIP_IMAGES = True
 

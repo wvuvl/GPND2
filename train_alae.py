@@ -171,6 +171,16 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
                                 save=True)
 
     extra_checkpoint_data = checkpointer.load()
+    save_file = os.path.join(checkpointer.folder, "last_checkpoint")
+    try:
+        with open(save_file, "r") as last_checkpoint:
+            f = last_checkpoint.read().strip()
+            f = os.path.basename(f)
+            checkpointer.tag_last_checkpoint(f)
+        extra_checkpoint_data = checkpointer.load()
+    except:
+        pass
+
     logger.info("Starting from epoch: %d" % (scheduler.start_epoch()))
 
     arguments.update(extra_checkpoint_data)

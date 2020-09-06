@@ -60,7 +60,7 @@ def extract_statistics(cfg, train_set, model, output_folder, no_plots=False):
 
         z, _ = model.encode(x)
 
-        rec = model.generator(z, True)
+        rec = model.generator(z, False)
 
         recon_batch = rec.cpu().detach().numpy()
         x = x.cpu().detach().numpy()
@@ -148,7 +148,7 @@ def run_novely_prediction_on_dataset(cfg, dataset, inliner_classes, percentage, 
 
         z, _ = model_s.encode(x)
 
-        rec = model_s.generator(z, True)
+        rec = model_s.generator(z, False)
 
         z = z.cpu().detach().numpy()
 
@@ -277,8 +277,8 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
 
     novelty_detector = model_s, bin_edges, counts, gennorm_param,
 
-    #percentages = cfg.DATASET.PERCENTAGES
-    percentages = [50]
+    percentages = cfg.DATASET.PERCENTAGES
+    # percentages = [50]
 
     results = {}
     for p in percentages:
