@@ -76,14 +76,14 @@ def save_sample(lod2batch, tracker, sample, samplez, x, logger, model, cfg, enco
         save_pic(resultsample)
 
 
-def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]):
+def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=None):
     torch.cuda.set_device(local_rank)
     model = Model(
         startf=cfg.MODEL.START_CHANNEL_COUNT,
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        channels=cfg.MODEL.CHANNELS,
+        channels=cfg.MODEL.INPUT_IMAGE_CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
     )
@@ -95,7 +95,7 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        channels=cfg.MODEL.CHANNELS,
+        channels=cfg.MODEL.INPUT_IMAGE_CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER,
     )
@@ -195,7 +195,7 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
 
     lod2batch = driver.Driver(cfg, logger, world_size, dataset_size=len(train_set) * world_size)
 
-    sample = next(make_dataloader(train_set, cfg.TRAIN.BATCH_SIZE, torch.cuda.current_device()))
+    sample = next(make_dataloader(train_set, cfg.TRAIN.BATCH_1GPU, torch.cuda.current_device()))
     sample = sample[1]
     sample = sample.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
     # sample = (sample / 127.5 - 1.)
@@ -244,20 +244,14 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=[3]
 
         model.train()
 
-        need_permute = False
         epoch_start_time = time.time()
 
         i = 0
         for y, x in data_loader:
-            x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
-
             i += 1
             with torch.no_grad():
                 if x.shape[0] != lod2batch.get_per_GPU_batch_size():
                     continue
-                if need_permute:
-                    x = x.permute(0, 3, 1, 2)
-
             encoder_optimizer.zero_grad()
             loss_d, loss_zg = model(x, d_train=True, ae=False)
             tracker.update(dict(loss_d=loss_d, loss_zg=loss_zg))

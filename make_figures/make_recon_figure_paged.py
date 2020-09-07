@@ -63,7 +63,7 @@ def sample(cfg, logger):
         truncation_psi=cfg.MODEL.TRUNCATIOM_PSI,
         truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
-        channels=cfg.MODEL.CHANNELS,
+        channels=cfg.MODEL.INPUT_IMAGE_CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER)
     model.cuda(0)

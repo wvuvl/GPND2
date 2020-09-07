@@ -56,8 +56,6 @@ def extract_statistics(cfg, train_set, model, output_folder, no_plots=False):
     data_loader = make_dataloader(train_set, cfg.TEST.BATCH_SIZE, torch.cuda.current_device())
 
     for y, x in data_loader:
-        x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
-
         z, _ = model.encode(x)
 
         rec = model.generator(z, False)
@@ -144,8 +142,6 @@ def run_novely_prediction_on_dataset(cfg, dataset, inliner_classes, percentage, 
         return logC - (N - 1) * np.log(x), np.log(r_pdf(x, bin_edges, counts))
 
     for label, x in data_loader:
-        x = x.view(-1, cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
-
         z, _ = model_s.encode(x)
 
         rec = model_s.generator(z, False)
@@ -247,7 +243,7 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
         layer_count=cfg.MODEL.LAYER_COUNT,
         maxf=cfg.MODEL.MAX_CHANNEL_COUNT,
         latent_size=cfg.MODEL.LATENT_SPACE_SIZE,
-        channels=cfg.MODEL.CHANNELS,
+        channels=cfg.MODEL.INPUT_IMAGE_CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER)
     model_s.cuda(local_rank)
@@ -285,6 +281,8 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
     for p in percentages:
         # plt.figure(num=None, figsize=(8, 6), dpi=180, facecolor='w', edgecolor='k')
         alpha, beta, threshold, _ = compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, p, novelty_detector)
+        with open(os.path.join(output_folder, 'coeffs_percentage_%d.txt' % int(p)), 'w') as f:
+            f.write("%f %f %f\n" % (alpha, beta, threshold))
         results[p] = test(cfg, logger, test_set, inliner_classes, p, novelty_detector, alpha, beta, threshold)
 
     return results

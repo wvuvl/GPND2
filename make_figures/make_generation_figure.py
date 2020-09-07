@@ -55,7 +55,7 @@ def sample(cfg, logger):
         truncation_cutoff=cfg.MODEL.TRUNCATIOM_CUTOFF,
         style_mixing_prob=cfg.MODEL.STYLE_MIXING_PROB,
         mapping_layers=cfg.MODEL.MAPPING_LAYERS,
-        channels=cfg.MODEL.CHANNELS,
+        channels=cfg.MODEL.INPUT_IMAGE_CHANNELS,
         generator=cfg.MODEL.GENERATOR,
         encoder=cfg.MODEL.ENCODER)
 

@@ -61,6 +61,10 @@ def make_datasets(cfg, folding_id, inliner_classes):
             else:
                 data_train += fold
 
+    if cfg.DATASET.MIX_VALIDATION_AND_TRAINING:
+        data_train += data_valid
+        data_valid += data_train
+
     outlier_classes = []
     for i in range(cfg.DATASET.TOTAL_CLASS_COUNT):
         if i not in inliner_classes:
@@ -71,6 +75,7 @@ def make_datasets(cfg, folding_id, inliner_classes):
     with open(cfg.DATASET.PATH % folding_id, 'rb') as pkl:
         data_test = pickle.load(pkl)
 
+    data_train *= cfg.DATASET.TRAIN_MUL
     train_set = Dataset(data_train)
     valid_set = Dataset(data_valid)
     test_set = Dataset(data_test)
