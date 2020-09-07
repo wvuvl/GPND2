@@ -206,11 +206,12 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
 
         return best_f1
 
-    cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [20.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
-                                 n=8, max_iter=6)
-    beta, alpha = cmax
-
-    # beta, alpha = 10, 0.2
+    if cfg.ALPHA_BETA_TUNING:
+        cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [20.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
+                                     n=8, max_iter=6)
+        beta, alpha = cmax
+    else:
+        beta, alpha = cfg.BETA, cfg.ALPHA
 
     # Find threshold
     def eval(th):

@@ -76,6 +76,8 @@ _C.TRAIN.LEARNING_RATES = 0.002
 
 _C.OUTPUT_DIR = 'results'
 _C.RESULTS_NAME = 'results.csv'
+_C.ALPHA = 13.0
+_C.BETA = 0.2
 
 
 def get_cfg_defaults():
