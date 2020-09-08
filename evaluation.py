@@ -12,7 +12,7 @@ def get_f1(true_positive, false_positive, false_negative):
     return 2.0 * precision * recall / (precision + recall)
 
 
-def evaluate(logger, percentage_of_outliers, inliner_classes, prediction, threshold, gt_inlier):
+def evaluate(cfg, logger, percentage_of_outliers, inliner_classes, prediction, threshold, gt_inlier):
     y = np.greater(prediction, threshold)
 
     gt_outlier = np.logical_not(gt_inlier)
@@ -39,6 +39,8 @@ def evaluate(logger, percentage_of_outliers, inliner_classes, prediction, thresh
     logger.info("F1 %f" % get_f1(true_positive, false_positive, false_negative))
     logger.info("AUC %f" % auc)
 
+    results = dict(auc=auc, f1=f1, accuracy=accuracy)
+
     # return dict(auc=auc, f1=f1)
 
     # inliers
@@ -50,79 +52,86 @@ def evaluate(logger, percentage_of_outliers, inliner_classes, prediction, thresh
     minP = min(prediction) - 1
     maxP = max(prediction) + 1
 
-    ##################################################################
-    # FPR at TPR 95
-    ##################################################################
-    fpr95 = 0.0
-    clothest_tpr = 1.0
-    dist_tpr = 1.0
-    for threshold in np.arange(minP, maxP, 0.2):
-        tpr = np.sum(np.greater_equal(X1, threshold)) / np.float(len(X1))
-        fpr = np.sum(np.greater_equal(Y1, threshold)) / np.float(len(Y1))
-        if abs(tpr - 0.95) < dist_tpr:
-            dist_tpr = abs(tpr - 0.95)
-            clothest_tpr = tpr
-            fpr95 = fpr
+    if cfg.EVALUATION.FPR95:
+        ##################################################################
+        # FPR at TPR 95
+        ##################################################################
+        fpr95 = 0.0
+        clothest_tpr = 1.0
+        dist_tpr = 1.0
+        for threshold in np.arange(minP, maxP, 0.2):
+            tpr = np.sum(np.greater_equal(X1, threshold)) / np.float(len(X1))
+            fpr = np.sum(np.greater_equal(Y1, threshold)) / np.float(len(Y1))
+            if abs(tpr - 0.95) < dist_tpr:
+                dist_tpr = abs(tpr - 0.95)
+                clothest_tpr = tpr
+                fpr95 = fpr
 
-    logger.info("tpr: %f" % clothest_tpr)
-    logger.info("fpr95: %f" % fpr95)
+        logger.info("tpr: %f" % clothest_tpr)
+        logger.info("fpr95: %f" % fpr95)
+        results.update(fpr95=fpr95)
 
-    ##################################################################
-    # Detection error
-    ##################################################################
-    error = 1.0
-    for threshold in np.arange(minP, maxP, 0.2):
-        tpr = np.sum(np.less(X1, threshold)) / np.float(len(X1))
-        fpr = np.sum(np.greater_equal(Y1, threshold)) / np.float(len(Y1))
-        error = np.minimum(error, (tpr + fpr) / 2.0)
+    if cfg.EVALUATION.DET_ERROR:
+        ##################################################################
+        # Detection error
+        ##################################################################
+        error = 1.0
+        for threshold in np.arange(minP, maxP, 0.2):
+            tpr = np.sum(np.less(X1, threshold)) / np.float(len(X1))
+            fpr = np.sum(np.greater_equal(Y1, threshold)) / np.float(len(Y1))
+            error = np.minimum(error, (tpr + fpr) / 2.0)
 
-    logger.info("Detection error: %f" % error)
+        logger.info("Detection error: %f" % error)
+        results.update(error=error)
 
-    ##################################################################
-    # AUPR IN
-    ##################################################################
-    auprin = 0.0
-    recallTemp = 1.0
-    for threshold in np.arange(minP, maxP, 0.2):
-        tp = np.sum(np.greater_equal(X1, threshold))
-        fp = np.sum(np.greater_equal(Y1, threshold))
-        if tp + fp == 0:
-            continue
-        precision = tp / (tp + fp)
-        recall = tp / np.float(len(X1))
-        auprin += (recallTemp - recall) * precision
-        recallTemp = recall
-    auprin += recall * precision
+    if cfg.EVALUATION.AUPR_IN:
+        ##################################################################
+        # AUPR IN
+        ##################################################################
+        auprin = 0.0
+        recallTemp = 1.0
+        for threshold in np.arange(minP, maxP, 0.2):
+            tp = np.sum(np.greater_equal(X1, threshold))
+            fp = np.sum(np.greater_equal(Y1, threshold))
+            if tp + fp == 0:
+                continue
+            precision = tp / (tp + fp)
+            recall = tp / np.float(len(X1))
+            auprin += (recallTemp - recall) * precision
+            recallTemp = recall
+        auprin += recall * precision
 
-    logger.info("auprin: %f" % auprin)
+        logger.info("auprin: %f" % auprin)
+        results.update(auprin=auprin)
 
-    ##################################################################
-    # AUPR OUT
-    ##################################################################
-    minP, maxP = -maxP, -minP
-    X1 = [-x for x in X1]
-    Y1 = [-x for x in Y1]
-    auprout = 0.0
-    recallTemp = 1.0
-    for threshold in np.arange(minP, maxP, 0.2):
-        tp = np.sum(np.greater_equal(Y1, threshold))
-        fp = np.sum(np.greater_equal(X1, threshold))
-        if tp + fp == 0:
-            continue
-        precision = tp / (tp + fp)
-        recall = tp / np.float(len(Y1))
-        auprout += (recallTemp - recall) * precision
-        recallTemp = recall
-    auprout += recall * precision
+    if cfg.EVALUATION.AUPR_OUT:
+        ##################################################################
+        # AUPR OUT
+        ##################################################################
+        minP, maxP = -maxP, -minP
+        X1 = [-x for x in X1]
+        Y1 = [-x for x in Y1]
+        auprout = 0.0
+        recallTemp = 1.0
+        for threshold in np.arange(minP, maxP, 0.2):
+            tp = np.sum(np.greater_equal(Y1, threshold))
+            fp = np.sum(np.greater_equal(X1, threshold))
+            if tp + fp == 0:
+                continue
+            precision = tp / (tp + fp)
+            recall = tp / np.float(len(Y1))
+            auprout += (recallTemp - recall) * precision
+            recallTemp = recall
+        auprout += recall * precision
 
-    logger.info("auprout: %f" % auprout)
+        logger.info("auprout: %f" % auprout)
 
-    with open(os.path.join("results.txt"), "a") as file:
-        file.write(
-            "Class: %s\n Percentage: %d\n"
-            "Error: %f\n F1: %f\n AUC: %f\nfpr95: %f"
-            "\nDetection: %f\nauprin: %f\nauprout: %f\n\n" %
-            ("_".join([str(x) for x in inliner_classes]), percentage_of_outliers, error, f1, auc, fpr95, error, auprin, auprout))
+        with open(os.path.join("results.txt"), "a") as file:
+            file.write(
+                "Class: %s\n Percentage: %d\n"
+                "Error: %f\n F1: %f\n AUC: %f\nfpr95: %f"
+                "\nDetection: %f\nauprin: %f\nauprout: %f\n\n" %
+                ("_".join([str(x) for x in inliner_classes]), percentage_of_outliers, error, f1, auc, fpr95, error, auprin, auprout))
 
-    return dict(auc=auc, f1=f1, fpr95=fpr95, error=error, auprin=auprin, auprout=auprout)
-    # return auc, f1, fpr95, error, auprin, auprout
+        results.update(auprout=auprout)
+    return results

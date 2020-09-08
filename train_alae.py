@@ -193,7 +193,7 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=Non
     latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
     samplez = torch.tensor(latents).float().cuda()
 
-    lod2batch = driver.Driver(cfg, logger, world_size, dataset_size=len(train_set) * world_size)
+    lod2batch = driver.Driver(cfg, logger, world_size, dataset_size=len(train_set))
 
     sample = next(make_dataloader(train_set, cfg.TRAIN.BATCH_1GPU, torch.cuda.current_device()))
     sample = sample[1]
@@ -300,7 +300,12 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=Non
     logger.info("Training finish!... save training results")
     if epoch is not None:
         save(epoch)
-    best_model_name, best_model_score = max(scores_list, key=operator.itemgetter(1))
+
+    best_model_name, best_model_score = scores_list[0]
+    for model_name, model_score in scores_list:
+        if model_score >= best_model_score:
+            best_model_name, best_model_score = model_name, model_score
+
     checkpointer.tag_best_checkpoint(best_model_name)
 
 

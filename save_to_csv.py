@@ -1,8 +1,16 @@
 import csv
 import numpy as np
+import pickle
+import pprint
 
 
 def save_results(results, filename):
+    with open(filename[:-4] + ".pkl", "wb") as f:
+        pickle.dump(results, f)
+        print(results)
+        pp = pprint.PrettyPrinter()
+        pp.pprint(results)
+
     percentages = list(results[0].keys())
     measures = list(list(results[0].values())[0].keys())
 
@@ -17,7 +25,8 @@ def save_results(results, filename):
         for r in results:
             row = []
             for p in percentages:
-                row.append(r[p][m])
+                if p in r:
+                    row.append(r[p][m])
             writer.writerow(tuple(row))
 
     f.close()

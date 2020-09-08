@@ -198,7 +198,7 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
         def eval(th):
             return evaluate(th, beta, alpha)
 
-        best_th, best_f1 = find_maximum(eval, -200, 200, 1e-2)
+        best_th, best_f1 = find_maximum(eval, *cfg.THRESHOLD_NARROW_WINDOW, 1e-2)
 
         return best_f1
 
@@ -213,7 +213,7 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
     def eval(th):
         return evaluate(th, beta, alpha)
 
-    threshold, best_f1 = find_maximum(eval, -1000, 1000, 1e-3)
+    threshold, best_f1 = find_maximum(eval, *cfg.THRESHOLD_FINAL_WINDOW, 1e-3)
 
     logger.info("Best e: %f Best beta: %f Best a: %f best f1: %f" % (threshold, beta, alpha, best_f1))
     return alpha, beta, threshold, best_f1

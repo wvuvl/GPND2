@@ -17,7 +17,7 @@ MODEL:
 OUTPUT_DIR: fmnist_results
 RESULTS_NAME: results_no_tuning.csv
 ALPHA_BETA_TUNING: False
-ALPHA: 13
+ALPHA: 13.0
 BETA: 0.4
 TRAIN:
   BASE_LEARNING_RATE: 0.002
