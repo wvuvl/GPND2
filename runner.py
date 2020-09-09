@@ -18,7 +18,7 @@ logger.addHandler(ch)
 if len(sys.argv) > 1:
     cfg_file = 'configs/' + sys.argv[1]
 else:
-    cfg_file = 'configs/mnist_os.yaml'
+    cfg_file = 'configs/cifar10_os.yaml'
 
 cfg = get_cfg_defaults()
 cfg.merge_from_file(cfg_file)

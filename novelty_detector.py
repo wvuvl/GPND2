@@ -229,7 +229,7 @@ def test(cfg, logger, test_set, inliner_classes, percentage, novelty_detector, a
 
     y_scores = (y_scores_components * coeff).mean(axis=1)
 
-    return evaluate(logger, percentage, inliner_classes, y_scores, threshold, y_true)
+    return evaluate(cfg, logger, percentage, inliner_classes, y_scores, threshold, y_true)
 
 
 def main(cfg, logger, local_rank, folding_id, inliner_classes):
