@@ -18,19 +18,26 @@ logger.addHandler(ch)
 if len(sys.argv) > 1:
     cfg_file = 'configs/' + sys.argv[1]
 else:
-    cfg_file = 'configs/mnist.yaml'
-
-settings = []
-
-classes_count = 10
-
-for fold in range(5 if full_run else 1):
-    for i in range(classes_count):
-        settings.append(dict(fold=fold, digit=i))
+    cfg_file = 'configs/mnist_os.yaml'
 
 cfg = get_cfg_defaults()
 cfg.merge_from_file(cfg_file)
 cfg.freeze()
+
+classes_count = cfg.DATASET.TOTAL_CLASS_COUNT
+
+settings = []
+
+fold_range = 5
+if not full_run:
+    fold_range = 1
+if cfg.DATASET.OFFICIAL_SPLIT:
+    fold_range = 1
+
+
+for fold in range(5 if full_run else 1):
+    for i in range(classes_count):
+        settings.append(dict(fold=fold, digit=i))
 
 
 def f(setting):

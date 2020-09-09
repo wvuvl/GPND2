@@ -187,7 +187,7 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=Non
 
     layer_to_resolution = generator.layer_to_resolution
 
-    train_set, _, _ = make_datasets(cfg, folding_id, inliner_classes)
+    train_set, _, _ = make_datasets(cfg, logger, folding_id, inliner_classes)
 
     rnd = np.random.RandomState(3456)
     latents = rnd.randn(32, cfg.MODEL.LATENT_SPACE_SIZE)
@@ -248,6 +248,7 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=Non
 
         i = 0
         for y, x in data_loader:
+            x = x.view(x.shape[0], cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
             i += 1
             with torch.no_grad():
                 if x.shape[0] != lod2batch.get_per_GPU_batch_size():
@@ -311,5 +312,5 @@ def train(cfg, logger, local_rank, world_size, folding_id=0, inliner_classes=Non
 
 if __name__ == "__main__":
     gpu_count = torch.cuda.device_count()
-    run(train, get_cfg_defaults(), description='', default_config='configs/mnist.yaml',
+    run(train, get_cfg_defaults(), description='', default_config='configs/mnist_os.yaml',
         world_size=gpu_count)

@@ -56,6 +56,7 @@ def extract_statistics(cfg, train_set, model, output_folder, no_plots=False):
     data_loader = make_dataloader(train_set, cfg.TEST.BATCH_SIZE, torch.cuda.current_device())
 
     for y, x in data_loader:
+        x = x.view(x.shape[0], cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
         z, _ = model.encode(x)
 
         rec = model.generator(z, False)
@@ -106,7 +107,7 @@ def extract_statistics(cfg, train_set, model, output_folder, no_plots=False):
 
 
 def eval_model_on_valid(cfg, logger, model_s, folding_id, inliner_classes):
-    train_set, valid_set, test_set = make_datasets(cfg, folding_id, inliner_classes)
+    train_set, valid_set, test_set = make_datasets(cfg, logger, folding_id, inliner_classes)
     print('Validation set size: %d' % len(valid_set))
 
     output_folder = os.path.join('results_' + str(folding_id) + "_" + "_".join([str(x) for x in inliner_classes]))
@@ -142,6 +143,7 @@ def run_novely_prediction_on_dataset(cfg, dataset, inliner_classes, percentage, 
         return logC - (N - 1) * np.log(x), np.log(r_pdf(x, bin_edges, counts))
 
     for label, x in data_loader:
+        x = x.view(x.shape[0], cfg.MODEL.INPUT_IMAGE_CHANNELS, cfg.MODEL.INPUT_IMAGE_SIZE, cfg.MODEL.INPUT_IMAGE_SIZE)
         z, _ = model_s.encode(x)
 
         rec = model_s.generator(z, False)
@@ -232,7 +234,7 @@ def test(cfg, logger, test_set, inliner_classes, percentage, novelty_detector, a
 
 def main(cfg, logger, local_rank, folding_id, inliner_classes):
     torch.cuda.set_device(local_rank)
-    train_set, valid_set, test_set = make_datasets(cfg, folding_id, inliner_classes)
+    train_set, valid_set, test_set = make_datasets(cfg, logger, folding_id, inliner_classes)
     train_set.shuffle()
 
     print('Validation set size: %d' % len(valid_set))

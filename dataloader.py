@@ -48,7 +48,33 @@ class Dataset:
             np.take(x, permutation, axis=0, out=x)
 
 
-def make_datasets(cfg, folding_id, inliner_classes):
+def make_datasets(cfg, logger, folding_id, inliner_classes):
+    if cfg.DATASET.OFFICIAL_SPLIT:
+        logger.info("Using official split!!!!!!")
+
+        with open(cfg.DATASET.PATH % "train", 'rb') as pkl:
+            data_train = pickle.load(pkl)
+
+        with open(cfg.DATASET.PATH % "valid", 'rb') as pkl:
+            data_valid = pickle.load(pkl)
+
+        with open(cfg.DATASET.PATH % "test", 'rb') as pkl:
+            data_test = pickle.load(pkl)
+
+        outlier_classes = []
+        for i in range(cfg.DATASET.TOTAL_CLASS_COUNT):
+            if i not in inliner_classes:
+                outlier_classes.append(i)
+
+        data_train = [x for x in data_train if x[0] in inliner_classes]
+
+        train_set = Dataset(data_train)
+        valid_set = Dataset(data_valid)
+        test_set = Dataset(data_test)
+
+        return train_set, valid_set, test_set
+
+    logger.info("Using non-official, randomized  split!!!!!!")
     data_train = []
     data_valid = []
 
