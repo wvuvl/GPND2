@@ -22,6 +22,10 @@ import torch
 import torch.tensor
 import torch.utils
 import torch.utils.data
+import imageio
+import PIL.Image as Image
+import io
+import random
 
 cpu = torch.device('cpu')
 
@@ -49,6 +53,37 @@ class Dataset:
 
 
 def make_datasets(cfg, logger, folding_id, inliner_classes):
+    if cfg.DATASET.COVID:
+        logger.info("COVID!!!!!!")
+        random.seed(0)
+
+        def openim(img):
+            return np.asarray(Image.open(io.BytesIO(img)))
+
+        with open(cfg.DATASET.PATH % "train", 'rb') as pkl:
+            data_train = pickle.load(pkl)
+
+        with open(cfg.DATASET.PATH % "test", 'rb') as pkl:
+            data_test = pickle.load(pkl)
+
+        random.shuffle(data_train)
+        random.shuffle(data_test)
+        s = int(len(data_train) * 0.9)
+        data_valid = data_train[s:]
+        data_train = data_train[:s]
+
+        data_train = [(x[1], openim(x[0])[None, :, :, 0]) for x in data_train if x[1] == 0]
+        outlier = cfg.DATASET.OUTLIER
+
+        data_valid = [(x[1], openim(x[0])[None, :, :, 0]) for x in data_valid if x[1] == 0 or x[1] == outlier]
+        data_test = [(x[1], openim(x[0])[None, :, :, 0]) for x in data_test if x[1] == 0 or x[1] == outlier]
+
+        train_set = Dataset(data_train)
+        valid_set = Dataset(data_valid)
+        test_set = Dataset(data_test)
+
+        return train_set, valid_set, test_set
+
     if cfg.DATASET.OFFICIAL_SPLIT:
         logger.info("Using official split!!!!!!")
 
@@ -169,6 +204,6 @@ def create_set_with_outlier_percentage(dataset, inliner_classes, target_percenta
     outlier_count = len([1 for x in dataset if x[0] not in inliner_classes])
     inliner_count = len([1 for x in dataset if x[0] in inliner_classes])
     real_percetage = outlier_count * 100.0 / (outlier_count + inliner_count)
-    assert abs(real_percetage - target_percentage) < 0.01, "Didn't create dataset with requested percentage of outliers"
+    # assert abs(real_percetage - target_percentage) < 0.01, "Didn't create dataset with requested percentage of outliers"
 
     return dataset
