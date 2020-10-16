@@ -34,6 +34,7 @@ from utils.threshold_search import find_maximum
 from utils.save_plot import save_plot
 import matplotlib.pyplot as plt
 import scipy.stats
+from sklearn.metrics import roc_auc_score
 from scipy.special import loggamma
 from timeit import default_timer as timer
 from scipy.optimize import minimize, dual_annealing
@@ -181,7 +182,18 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
 
     y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
 
-    def evaluate(threshold, beta, alpha):
+    def evaluate_auc(threshold, beta, alpha):
+        coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
+        y_scores = (y_scores_components * coeff).mean(axis=1)
+
+        try:
+            auc = roc_auc_score(y_true, y_scores)
+        except:
+            auc = 0
+
+        return auc
+
+    def evaluate_f1(threshold, beta, alpha):
         coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
         y_scores = (y_scores_components * coeff).mean(axis=1)
 
@@ -198,14 +210,14 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
 
         # Find threshold
         def eval(th):
-            return evaluate(th, beta, alpha)
+            return evaluate_f1(th, beta, alpha)
 
         best_th, best_f1 = find_maximum(eval, *cfg.THRESHOLD_NARROW_WINDOW, 1e-2)
 
         return best_f1
 
     if cfg.ALPHA_BETA_TUNING:
-        cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [20.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
+        cmax, vmax = find_maximum_mv(func, [0.0, 0.0], [30.0, 1.0], xtoll=0.001, ftoll=0.001, verbose=True,
                                      n=8, max_iter=6)
         beta, alpha = cmax
     else:
@@ -213,7 +225,7 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
 
     # Find threshold
     def eval(th):
-        return evaluate(th, beta, alpha)
+        return evaluate_f1(th, beta, alpha)
 
     threshold, best_f1 = find_maximum(eval, *cfg.THRESHOLD_FINAL_WINDOW, 1e-3)
 
