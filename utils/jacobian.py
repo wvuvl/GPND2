@@ -85,7 +85,7 @@ def compute_jacobian_using_finite_differences_v3(input, func, epsilon=1e-3):
 
         input2 = torch.stack([input_ + e * epsilon, input_ - e * epsilon])
 
-        y = func(input2.reshape([input.shape[0] * input_size * 2] + list(input.shape[1:])))
+        y = func(input2.reshape([input.shape[0] * input_size * 2] + list(input.shape[1:])), False)
 
         output_size = np.prod(y.shape[1:]).item()
 

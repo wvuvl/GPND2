@@ -24,6 +24,7 @@ import logging
 import scipy.optimize
 import pickle
 from dataloader import *
+from utils.jacobian import *
 from torchvision.utils import save_image
 #from dataloading import make_datasets, make_dataloader, create_set_with_outlier_percentage
 from model import Model
@@ -135,6 +136,8 @@ def run_novely_prediction_on_dataset(cfg, dataset, inliner_classes, percentage, 
 
     data_loader = make_dataloader(dataset, cfg.TEST.BATCH_SIZE, torch.cuda.current_device())
 
+    include_jacobian = False
+
     N = cfg.MODEL.INPUT_IMAGE_CHANNELS * cfg.MODEL.INPUT_IMAGE_SIZE * cfg.MODEL.INPUT_IMAGE_SIZE - cfg.MODEL.LATENT_SPACE_SIZE
     logC = loggamma(N / 2.0) - (N / 2.0) * np.log(2.0 * np.pi)
 
@@ -149,13 +152,24 @@ def run_novely_prediction_on_dataset(cfg, dataset, inliner_classes, percentage, 
 
         rec = model_s.generator(z, False)
 
+        if include_jacobian:
+            # J = compute_jacobian(x, z)
+            J = compute_jacobian_using_finite_differences_v3(z, model_s.generator)
+            J = J.cpu().numpy()
+
         z = z.cpu().detach().numpy()
 
         recon_batch = rec.cpu().detach().numpy()
         x = x.cpu().detach().numpy()
 
         for i in range(x.shape[0]):
-            logD = 0
+            if include_jacobian:
+                u, s, vh = np.linalg.svd(J[i, :, :], full_matrices=False)
+                logD = np.sum(np.log(np.abs(1.0 / s)))  # | \mathrm{det} S^{-1} |
+                # logD = np.log(np.abs(1.0/(np.prod(s))))
+            else:
+                logD = 0
+
             p = scipy.stats.gennorm.pdf(z[i], gennorm_param[0, :], gennorm_param[1, :], gennorm_param[2, :])
             logPz = np.sum(np.log(p))
 
@@ -182,8 +196,10 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
 
     y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
 
+    use_auc = False
+
     def evaluate_auc(threshold, beta, alpha):
-        coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
+        coeff = np.asarray([[-1, beta, alpha, 1]], dtype=np.float32)
         y_scores = (y_scores_components * coeff).mean(axis=1)
 
         try:
@@ -194,7 +210,7 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
         return auc
 
     def evaluate_f1(threshold, beta, alpha):
-        coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
+        coeff = np.asarray([[-1, beta, alpha, 1]], dtype=np.float32)
         y_scores = (y_scores_components * coeff).mean(axis=1)
 
         y_false = np.logical_not(y_true)
@@ -207,6 +223,9 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
 
     def func(x):
         beta, alpha = x
+
+        if use_auc:
+            return evaluate_auc(0, beta, alpha)
 
         # Find threshold
         def eval(th):
@@ -233,13 +252,16 @@ def compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, percentage
     return alpha, beta, threshold, best_f1
 
 
-def test(cfg, logger, test_set, inliner_classes, percentage, novelty_detector, alpha, beta, threshold):
+def test(cfg, logger, test_set, inliner_classes, percentage, novelty_detector, alpha, beta, threshold, output_folder):
     y_scores_components, y_true = run_novely_prediction_on_dataset(cfg, test_set, inliner_classes, percentage, novelty_detector, concervative=True)
     y_scores_components = np.asarray(y_scores_components, dtype=np.float32)
 
-    coeff = np.asarray([[1, beta, alpha, 1]], dtype=np.float32)
+    coeff = np.asarray([[-1, beta, alpha, 1]], dtype=np.float32)
 
     y_scores = (y_scores_components * coeff).mean(axis=1)
+
+    with open(os.path.join(output_folder, "test_eval_normal.pkl"), "wb") as f:
+        pickle.dump((y_scores, y_true), f)
 
     return evaluate(cfg, logger, percentage, inliner_classes, y_scores, threshold, y_true)
 
@@ -297,7 +319,7 @@ def main(cfg, logger, local_rank, folding_id, inliner_classes):
         alpha, beta, threshold, _ = compute_threshold_coeffs(cfg, logger, valid_set, inliner_classes, p, novelty_detector)
         with open(os.path.join(output_folder, 'coeffs_percentage_%d.txt' % int(p)), 'w') as f:
             f.write("%f %f %f\n" % (alpha, beta, threshold))
-        results[p] = test(cfg, logger, test_set, inliner_classes, p, novelty_detector, alpha, beta, threshold)
+        results[p] = test(cfg, logger, test_set, inliner_classes, p, novelty_detector, alpha, beta, threshold, output_folder)
 
     return results
 
